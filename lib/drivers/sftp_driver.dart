@@ -159,15 +159,18 @@ class SftpDriver extends StorageDriver {
       mode: SftpFileOpenMode.create | SftpFileOpenMode.write | SftpFileOpenMode.truncate,
     );
     var done = 0;
+    final raf = await file.open();
     try {
-      // 用 openRead 的分块（默认 64 KB）逐段写，天然可中断、内存占用恒定。
-      await for (final chunk in file.openRead()) {
+      // 1 MB 为一块：内存占用恒定，且天然可被进度回调中断。
+      while (done < length) {
+        final chunk = await raf.read(1 << 20);
+        if (chunk.isEmpty) break;
         await handle.writeBytes(chunk, offset: done);
         done += chunk.length;
         onProgress?.call(done, length);
       }
-      if (length == 0) onProgress?.call(0, 0);
     } finally {
+      await raf.close();
       await handle.close();
     }
   }

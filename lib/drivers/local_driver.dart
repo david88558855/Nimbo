@@ -24,14 +24,6 @@ class LocalDriver extends StorageDriver {
     return '$base$rel';
   }
 
-  String _remote(String fsPath) {
-    var p = fsPath.replaceAll('\\', '/');
-    final base = _root.replaceAll('\\', '/').replaceAll(RegExp(r'/+$'), '');
-    if (p.startsWith(base)) p = p.substring(base.length);
-    if (!p.startsWith('/')) p = '/$p';
-    return normalizePath(p);
-  }
-
   @override
   Future<void> connect() async {
     final dir = Directory(_root);

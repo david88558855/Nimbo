@@ -83,7 +83,7 @@ class NimboRadius {
 }
 
 ThemeData buildNimboTheme() {
-  final scheme = const ColorScheme.light(
+  const scheme = ColorScheme.light(
     primary: NimboColors.sky600,
     onPrimary: Colors.white,
     secondary: NimboColors.teal,

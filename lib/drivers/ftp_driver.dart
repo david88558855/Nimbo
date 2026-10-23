@@ -266,7 +266,8 @@ class _FtpReply {
 /// 控制连接：按行读取 + 多行响应归并。
 class _FtpSession {
   _FtpSession(this._socket) {
-    _sub = _socket.listen((data) {
+    // 订阅在 socket 关闭时随流结束，无需单独持有
+    _socket.listen((data) {
       _buffer.addAll(data);
       _pump();
     }, onError: (Object e) {
@@ -279,7 +280,6 @@ class _FtpSession {
   }
 
   final Socket _socket;
-  late final StreamSubscription<Uint8List> _sub;
   final List<int> _buffer = [];
   final List<String> _lines = [];
   Completer<void>? _waiter;
