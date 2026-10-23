@@ -9,9 +9,19 @@ import 'webdav_driver.dart';
 
 /// 依据挂载配置构造驱动：凭据从系统安全存储取，代理密码同理。
 Future<StorageDriver> createDriver(Mount mount) async {
-  final password = await SecureStore.read(mount.id);
+  final stored = await SecureStore.readSafe(mount.id);
   final proxyPassword = await SecureStore.read(mount.id, field: 'proxyPassword');
   final proxy = mount.proxy.copyWith(password: proxyPassword);
+
+  // 安全存储读不出来时直接说清楚：否则会被当成空密码，四个协议全变成「认证失败」。
+  if (!stored.ok && mount.protocol != MountProtocol.local) {
+    throw DriverException(
+      '系统凭据库不可用，读不到该挂载的密码。请删除后重新添加；'
+      '若仍失败，多为系统密钥库权限或 Android minSdk 过低导致。',
+      kind: DriverErrorKind.auth,
+    );
+  }
+  final password = stored.value;
 
   switch (mount.protocol) {
     case MountProtocol.local:

@@ -45,8 +45,15 @@ class AppPaths {
   }
 }
 
-class AppSettings {
-  bool hideHiddenFiles = false;
+/// 安全存储读取结果：ok=false 表示读取过程本身失败（不是"没存过"）。
+class StoredSecret {
+  const StoredSecret(this.value, {required this.ok});
+
+  final String value;
+  final bool ok;
+}
+
+class AppSettings {  bool hideHiddenFiles = false;
   bool confirmDelete = true;
 
   /// 并发传输数：每个任务独占一条连接。
@@ -148,15 +155,29 @@ class SecureStore {
     }
   }
 
-  static Future<void> write(String mountId, String value, {String field = 'password'}) async {
+  /// 区分「没有存过」（ok=true, value 空）与「安全存储不可用」（ok=false）。
+  /// 后者在 Android 上通常是 minSdk < 23 或设备 keystore 异常，必须先提示用户，
+  /// 否则会被当成空密码，所有网络协议都表现成「认证失败」。
+  static Future<StoredSecret> readSafe(String mountId, {String field = 'password'}) async {
+    try {
+      final v = await _storage.read(key: _key(mountId, field));
+      return StoredSecret(v ?? '', ok: true);
+    } catch (_) {
+      return const StoredSecret('', ok: false);
+    }
+  }
+
+  /// 写入凭据；返回 false 表示安全存储不可用（调用方应提示用户，否则会静默丢密码）。
+  static Future<bool> write(String mountId, String value, {String field = 'password'}) async {
     try {
       if (value.isEmpty) {
         await _storage.delete(key: _key(mountId, field));
       } else {
         await _storage.write(key: _key(mountId, field), value: value);
       }
+      return true;
     } catch (_) {
-      // 安全存储不可用时静默降级为无凭据（下次连接会提示重新输入）
+      return false;
     }
   }
 

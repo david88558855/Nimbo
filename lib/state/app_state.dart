@@ -240,8 +240,20 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> addMount(Mount mount, {String password = '', String proxyPassword = ''}) async {
-    await SecureStore.write(mount.id, password);
-    await SecureStore.write(mount.id, proxyPassword, field: 'proxyPassword');
+    final okMain = await SecureStore.write(mount.id, password);
+    final okProxy =
+        await SecureStore.write(mount.id, proxyPassword, field: 'proxyPassword');
+    if (password.isNotEmpty && !okMain) {
+      throw DriverException(
+        '密码无法写入系统凭据库（权限或密钥库异常），现在添加会导致下次启动丢失密码。'
+        '请检查系统凭据管理器后重试。',
+        kind: DriverErrorKind.auth,
+      );
+    }
+    if (proxyPassword.isNotEmpty && !okProxy) {
+      throw DriverException('代理密码无法写入系统凭据库，请检查权限后重试。',
+          kind: DriverErrorKind.auth);
+    }
     _prefs.mounts.add(mount);
     _prefs.activeMountId = mount.id;
     await _prefs.save();

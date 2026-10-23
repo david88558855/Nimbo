@@ -52,6 +52,23 @@ jobs:
           flutter create --platforms=android --org com.nimbo --project-name nimbo "$RUNNER_TEMP/scaffold"
           cp -r "$RUNNER_TEMP/scaffold/android" ./android
           sed -i 's/android:label="nimbo"/android:label="Nimbo"/' android/app/src/main/AndroidManifest.xml
+      - name: grant network permissions
+        run: |
+          # flutter create 生成的 release AndroidManifest.xml 不含 INTERNET 权限
+          # （只有 debug/profile 的 manifest 有），缺了它 release 包的所有网络协议
+          # 都会直接失败，而本地挂载仍然正常 —— 表现为「四个协议都登不上」。
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          if ! grep -q 'android.permission.INTERNET' "$MANIFEST"; then
+            sed -i 's|^\(<manifest[^>]*>\)|\1\n    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>|' "$MANIFEST"
+          fi
+          # Android 9+ 默认禁止明文 HTTP：WebDAV http:// 与 FTP 的明文控制连接需要它
+          if ! grep -q 'usesCleartextTraffic' "$MANIFEST"; then
+            sed -i 's|<application|<application android:usesCleartextTraffic="true"|' "$MANIFEST"
+          fi
+          echo "--- manifest 前 14 行 ---"
+          sed -n '1,14p' "$MANIFEST"
+          echo "--- application 标签 ---"
+          grep -o '<application[^>]*>' "$MANIFEST"
       - name: raise compileSdk
         run: |
           # file_picker 8.x 仍声明 compileSdk 34，而 flutter_plugin_android_lifecycle
@@ -70,6 +87,20 @@ jobs:
                 -e 's/(compileSdk)([[:space:]]*=?[[:space:]]*)[0-9]+/\1\2 36/g'
           grep -rn --include='build.gradle*' -E '^\s*compileSdk' "$HOME/.pub-cache/hosted/pub.dev" \
             | sed 's|.*pub.dev/||' | sort -u | head -20
+      - name: raise minSdk
+        run: |
+          # flutter_secure_storage 的 EncryptedSharedPreferences 要求 minSdk >= 23。
+          # 低于该值时初始化抛异常，被 Dart 侧 catch 成「空密码」，最终表现为
+          # 所有网络协议登录失败（本地挂载不受影响）。
+          F=android/app/build.gradle.kts
+          [ -f "$F" ] || F=android/app/build.gradle
+          echo "before: $(grep -E '^[[:space:]]*minSdk' "$F" | head -1)"
+          if [[ "$F" == *.kts ]]; then
+            sed -i -E 's/^([[:space:]]*)minSdk[[:space:]]*=?[[:space:]]*.*/\1minSdk = 24/' "$F"
+          else
+            sed -i -E 's/^([[:space:]]*)minSdk(Version)?[[:space:]]*=?[[:space:]]*.*/\1minSdk 24/' "$F"
+          fi
+          echo "after:  $(grep -E '^[[:space:]]*minSdk' "$F" | head -1)"
       - name: build apk
         run: flutter build apk --release --target-platform android-arm64
       - uses: actions/upload-artifact@v4

@@ -137,12 +137,20 @@ class _AddMountDialogState extends State<AddMountDialog> {
       });
       return;
     }
-    await widget.state.addMount(
-      mount,
-      password: _password.text,
-      proxyPassword: _proxyPassword.text,
-    );
-    if (mounted) Navigator.of(context).pop(true);
+    try {
+      await widget.state.addMount(
+        mount,
+        password: _password.text,
+        proxyPassword: _proxyPassword.text,
+      );
+      if (mounted) Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _testOk = false;
+        _testResult = '$e';
+      });
+    }
   }
 
   @override
