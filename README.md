@@ -4,6 +4,7 @@
 
 - 协议：FTP / SFTP / S3 兼容 / WebDAV / 本地与映射盘
 - **接手必读：[`docs/PROJECT-STATUS.md`](docs/PROJECT-STATUS.md)**（当前进度、已验证范围、已知坑、待办与后续建议）
+- AI / 工程接手约束与常用命令：[`AGENTS.md`](AGENTS.md)
 - 视觉与交互：见 `design/index.html`（设计稿 v1.2，单一浅色主题）
 - 技术分析：见 `docs/s3-addressing-analysis.md`（S3 寻址模式与第三方兼容性）
 - 构建通道说明：git 推送不通时用 `python tools/push_via_api.py "说明"`（详见交接文档第 0 节）

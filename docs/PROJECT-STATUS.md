@@ -14,14 +14,15 @@
 | **硬约束** | **禁止本地编译**。本机没有 Flutter SDK，所有编译、静态检查、依赖解析只在 GitHub Actions 里发生 |
 | 真相来源 | `lib/` + `pubspec.yaml` + `.github/workflows/build.yml`。`android/`、`windows/` **不入库**，每次构建由 CI 现生成 |
 | 设计稿 | `design/index.html`（单文件、真实 CSS 渲染、可离线打开，v1.2） |
-| 当前版本 | `pubspec.yaml` → `0.2.0+2` |
+| 当前版本 | `pubspec.yaml` → `0.3.0+3` |
 
 **工具链（CI 实测）**：Flutter 3.47.7 stable / Dart 3.13.5 / Java 17（temurin）/
 runner `ubuntu-latest` + `windows-latest`。`pubspec.yaml` 的 SDK 约束写的是 `>=3.3.0`，
 但代码里只用了保守语法（没有 records 之外的实验特性），升级 Flutter 一般不会炸。
 
 主要依赖：`dio ^5.7`、`dartssh2 ^4.1`、`crypto ^3.0`、`xml ^6.5`、`path_provider ^2.1`、
-`flutter_secure_storage ^9.2`、`file_picker ^8.1`（**8.x，API 与 13.x 不同，见第 5 节第 4 条**）。
+`flutter_secure_storage ^9.2`、`file_picker ^8.1`（**8.x，API 与 13.x 不同，见第 5 节第 4 条**）、
+`desktop_drop ^0.8.4`（**锁 0.8.x，0.9.x 与 file_picker 8 冲突，见 ADR-12**）。
 
 ### 常用命令
 
@@ -36,9 +37,8 @@ JOB=$(gh run view <run-id> --json jobs --jq '.jobs[]|select(.name=="analyze")|.d
 gh run view --job $JOB --log-failed > ci.log
 sed -e 's/\x1b\[[0-9;]*m//g' ci.log | grep -E "error •|warning •"
 
-# 取产物
-gh run download <run-id> -n windows-x64-portable -D dist
-gh run download <run-id> -n android-arm64 -D dist/android
+# 取产物：gh run download 走 Azure Blob 单连接只有 ~15 KB/s，会卡十几分钟
+# 实际做法见第 5 节第 17 条：取 302 签名 URL 后用 16 路 curl -r 并发分块
 
 # 推送：优先 git push；若报 CONNECT tunnel failed / HTTP2 framing（本机代理到
 # github.com 不通，但 api.github.com 通），改用 API 通道：
@@ -47,6 +47,30 @@ python tools/push_via_api.py "提交说明"
 
 `tools/push_via_api.py` 用 Git Data API 直接建 blob→tree→commit→ref，
 不依赖 git 传输层，因此在代理故障时仍能提交，并会正常触发 Actions。
+
+### 本机通道（重启会丢，接手先确认）
+
+```bash
+# 1) 优选 IP：从 https://api.github.com/meta 的 web 段挑能过 TLS 的，
+#    实测 20.27.177.113 最快（TLS 0.19 s）
+echo "20.27.177.113 github.com" | sudo tee -a /etc/hosts
+echo "20.27.177.113 github.com" > ~/.user_hosts
+
+# 2) PMTU 黑洞：不改 MTU 时 git 要 37 s，甚至 90 s 后报 GnuTLS recv error (-110)
+sudo ip link set eth0 mtu 1400
+
+# 3) GnuTLS 走 h2 会握手失败，全局锁 HTTP/1.1
+git config --global http.version HTTP/1.1
+
+# 4) 认证：设备码流程已完成，token 在 ~/.config/gh/hosts.yml
+gh auth status   # 账号 david88558855，scope: repo / workflow / read:org
+
+# 5) 验证
+git -c http.version=HTTP/1.1 ls-remote https://github.com/david88558855/Nimbo.git
+```
+
+> 当前账号是仓库 owner（admin），可直接 push `main`；`workflow` scope 已具备，
+> 改 `.github/workflows/**` 不会被拒。
 
 ---
 
@@ -173,7 +197,8 @@ lib/
     transfer_manager.dart      传输队列
   pages/
     shell.dart                 自适应外壳（桌面 Rail / 移动 NavigationBar）
-    files_page.dart            文件列表、详情栏、上传入口、底部传输条
+    files_page.dart            文件列表、详情栏、上传入口、多选条、拖拽接收、底部传输条
+    preview_page.dart          图片/文本预览对话框（canPreviewEntry + showPreview）
     transfers_page.dart        传输任务列表
     mounts_page.dart           挂载管理
     add_mount_page.dart        添加挂载弹窗（含代理与连接测试）
@@ -231,6 +256,18 @@ FTP 的控制连接一次只能跑一个传输，共用会话会让「同时上�
 要求 36，AAR metadata 检查直接失败。CI 在 scaffold 后统一把 app 与 pub-cache 里写死的
 compileSdk 抬到 36（只动 compileSdk，不碰 targetSdk/minSdk）。**这个步骤不要删。**
 
+**ADR-11 续传起点一律「实测」，不信任内存计数**
+内存里的 `task.transferred` 只是「已经交给 socket」的字节，不等于对端落盘量。
+所以下载续传起点取**本地文件真实长度**，上传续传起点取**远端 `SIZE`/`stat` 的返回值**；
+两者与记录不一致时以实测为准，宁可重传也不拼出一个错位文件。
+HTTP 类只接受 `206 Partial Content`：服务器返回 200 说明忽略了 Range，必须从头覆盖。
+
+**ADR-12 desktop_drop 锁 0.8.4**
+`desktop_drop >= 0.9.0` 依赖 `cross_file ^0.4.0`，`file_picker 8.x` 依赖 `^0.3.3+7`，
+两者无法共存（pub 直接求解失败）。0.9 的新 API（`onDrop`/`DropFileItem`）暂时用不了，
+只能用 0.8.4 的 `onDragDone`/`DropDoneDetails.files`。
+**升级 `file_picker` 到 12.x 时，可以顺手把 desktop_drop 升到 0.9.x，但两者必须同批改。**
+
 ---
 
 ## 5. 注意事项与已知坑（必读）
@@ -244,8 +281,9 @@ compileSdk 抬到 36（只动 compileSdk，不碰 targetSdk/minSdk）。**这个
    `size` 改成 `await file.length()`。升级时这两个调用点（`files_page.dart` 的 `_upload`）必须一起改。
 5. **Android 上 file_picker 返回的是缓存副本路径。** 大文件会额外占一倍存储空间；
    真正的 SAF 直读需要改用 `PlatformFile.readAsByteStream()` 并让驱动接受 Stream。
-6. **FTP/SFTP/WebDAV 上传中断会留下远端半截文件。** 只有 S3 有 Abort 机制。
-   这是 P2 要补的（先写临时名再 rename，或做 Range 续传）。
+6. **上传中断的远端残留要看协议。** S3 走 `AbortMultipartUpload` 清理；FTP/SFTP 的续传
+   依赖「远端大小 == 记录偏移」，不一致就整份重传并覆盖；WebDAV 没有标准追加语义，
+   中断必留半截文件，下次整份覆盖。**别假设「暂停一定续传」**，以 `driver.resume` 为准。
 7. **FTPS 尚未实现。** `models.dart` 里 FTP 的 hint 写着「明文 / FTPS」属于文案超前，
    实际只有明文 FTP。要么实现 `AUTH TLS`，要么把文案改成「明文 FTP」。
 8. **`total` 未知时进度条不会动。** FTP 无 SIZE 时 `total = 0`，界面显示「未知大小」，
@@ -261,40 +299,55 @@ compileSdk 抬到 36（只动 compileSdk，不碰 targetSdk/minSdk）。**这个
     反向代理改写路径或 Host 必然 `SignatureDoesNotMatch`——文档里明确不支持这种部署。
 14. **进度回调是中断点。** 写新驱动时若在长循环里不调用 `onProgress`，暂停按钮对该协议无效；
     同时注意在 `finally` 里关闭 sink/handle，否则中断会泄漏。
+15. **`analyze` 是唯一门禁，一次只改一类问题。** 本地没有 Flutter SDK，`dart analyze` 也跑不了，
+    所以提交粒度要小：`analyze` 约 1.5 分钟出结果，platform 构建要 5–6 分钟，混改会让定位成本翻倍。
+16. **本机直连 `github.com` 需要两件事**（否则 90 秒后报 `GnuTLS recv error (-110)`）：
+    ① `/etc/hosts` 固定一个可用 IP（`~/.user_hosts` 里也要写，否则重启丢失）；
+    ② `ip link set eth0 mtu 1400`（PMTU 黑洞，改完 `git ls-remote` 从 37 s 降到 1.2 s）。
+    另外 `git -c http.version=HTTP/1.1` 必须生效（全局已配），GnuTLS 走 h2 会握手失败。
+17. **Actions 产物下载走 Azure Blob，单连接只有约 15 KB/s。** `gh run download` 会卡十几分钟；
+    实际做法是取 302 的签名 URL，用 16 路 `curl -r` 分块并发，9 MB 约 1 分钟、13 MB 约 1.6 分钟。
+    注意 SAS 有效期只有 10 分钟，**下载前现取 URL**；且只能交给 curl，urllib 跟随 302 会
+    重新编码查询串导致 403。
 
 ---
 
-## 6. 待办（按建议顺序）
+## 6. 待办（按建议顺序，P2 已完成项已移出）
 
 | # | 事项 | 为什么 | 难度 | 主要文件 |
 |---|---|---|---|---|
-| 1 | **断点续传**：HTTP Range 下载、SFTP `read(offset)`、S3 分片续传 | 「网盘」最核心的体验缺口；现在暂停=从头来 | 中 | `transfer_manager.dart`、各驱动的 `downloadTo/uploadFile` |
-| 2 | **上传先写临时名再 rename** | 解决第 6 条：中断不留半截文件（FTP/SFTP/WebDAV） | 低 | 三个驱动 + `StorageDriver` 加 `atomic` 能力位 |
-| 3 | **多选与批量操作** | 移动端长按多选、桌面 Shift/Ctrl 多选、批量删除/下载 | 中 | `files_page.dart`、`app_state.dart` |
-| 4 | **目录上传**（递归） | 上传文件夹是常见需求 | 中 | `file_picker` 的 `getDirectoryPath` + 队列展开 |
-| 5 | **预览**：图片/文本/音视频 | 决定「能不能当日常网盘用」 | 高 | 新页面 + `media_kit`（需评估体积） |
-| 6 | **S3 目录删除分页** | 第 9 条 | 低 | `s3_driver.dart` |
-| 7 | **S3 分片并发** | 高延迟链路下提升吞吐 | 中 | `s3_driver.dart`（当前串行） |
-| 8 | **传输记录持久化** | 重启后任务列表清空 | 中 | `prefs.json` 或独立 json |
-| 9 | **Windows 托盘 + 拖拽上传** | 桌面端顺手度 | 中 | 需引入 `tray_manager` / `desktop_drop`（注意 CI 平台依赖） |
-| 10 | **FTPS（AUTH TLS）** 或修文案 | 对齐承诺 | 低 | `ftp_driver.dart` / `models.dart` |
-| 11 | **SFTP/Local 容量** | 现在显示「未知」 | 低 | `sftp_driver.space()` 可试 `statvfs` |
-| 12 | **统一错误文案** | 代理不通 vs 目标不通要分开（设计稿已定义） | 低 | `DriverException` 的 kind → 文案映射表 |
+| 1 | **Windows 系统托盘**（关闭/最小化到托盘、托盘菜单显示窗口/退出） | 桌面端最后一块体验缺口。`tray_manager 0.8` 换了全新 native API（`TrayIcon.create()`），并且需要一张 png/ico 图标资源与 `window_manager` 拦截关闭事件 | 中 | `main.dart`、`shell.dart`、`pubspec.yaml`、`assets/` |
+| 2 | **S3 分片续传 + 分片并发** | 中断后整份重传成本最高；并发能改善高延迟链路吞吐。需要持久化 `uploadId` 与已完成分片表 | 高 | `s3_driver.dart`、`transfer_manager.dart`（任务级状态） |
+| 3 | **WebDAV 上传续传** | 目前中断必留半截文件。标准 WebDAV 无追加语义，只能走第三方分块扩展或临时名 + rename | 高 | `webdav_driver.dart` |
+| 4 | **上传先写临时名再 rename** | 解决 WebDAV/FTP 中断残留；需要 `StorageDriver` 加 `atomic` 能力位 | 中 | `storage_driver.dart` + 三个驱动 |
+| 5 | **S3 目录删除分页** | 见坑 9，超大目录会漏删 | 低 | `s3_driver.dart` |
+| 6 | **传输记录持久化** | 重启后任务列表清空；至少保存失败/未完成项 | 中 | `core/store.dart`、`transfer_manager.dart` |
+| 7 | **限速** | 上传/下载限速（全局或单任务） | 中 | 传输循环加令牌桶 |
+| 8 | **FTPS（AUTH TLS）或改文案** | `models.dart` 的 hint 写着 FTPS，实际只有明文 | 低 | `ftp_driver.dart` / `models.dart` |
+| 9 | **SFTP / 本地容量** | 现在恒为「未知」；SFTP 可试 `statvfs`（`SftpFile.statvfs()` 已在依赖里） | 低 | `sftp_driver.space()`、`local_driver.space()` |
+| 10 | **统一错误文案** | 代理不通 vs 目标不通要能区分；`DriverErrorKind` 已有，缺映射表 | 低 | `ui/` 新增文案映射 + 各 `catch` |
+| 11 | **移动端多选手势** | 当前长按仍是操作菜单，多选只能点顶部「选择」 | 低 | `files_page.dart` |
+| 12 | **预览扩展（音视频 / PDF）** | 现在只覆盖图片与文本；`media_kit` 需评估包体积 | 高 | `preview_page.dart` |
 
 ---
 
 ## 7. 后续工作建议
 
-1. **先做 1 + 2（断点续传 + 临时名 rename）**，一次把「大文件可靠性」补齐。
-   验收：1 GB 文件传到 60% 暂停 → 继续后从 60% 起；中途断网重试不留半截文件。
-2. **再做 3 + 4（多选与目录上传）**，把「能不能批量搬文件」这条日常路径打通。
-   验收：选 20 个文件全部入队；上传一个含子目录的文件夹，远端结构一致。
-3. **然后上预览（5）**，这是产品分水岭；同时评估 `media_kit` 对 Windows/Android 包体积的影响。
-4. 每个阶段结束都：CI 三绿 → 下载产物 → 手工回归（见附录）→ 更新本文档的「当前阶段」表。
+1. **先做托盘（1）**：它是「看起来完成」的最后一块，且改动局限在桌面外壳，回归面小。
+   注意 `tray_manager 0.8` 与 0.5.x 的 API 完全不同（新 API 是 `TrayIcon.create()`，
+   旧写法要 `import 'package:tray_manager/legacy.dart'`），网上多数示例是旧 API。
+2. **再做 4 + 2（临时名 rename → S3 分片续传）**，把「大文件可靠性」补到底。
+   验收：1 GB 传 60% 暂停 → 继续从 60% 起；中途杀进程重启后仍能续（需 6 先做）。
+3. **然后 6 + 7（持久化 + 限速）**，这两项都属于「设置里有开关、行为可预期」的产品化收尾。
+4. 每个阶段结束都：CI 三绿 → 下载产物 → 按附录回归 → 更新本文档的「当前阶段」表与「构建记录」。
 
-**给下一位 AI 的工作方式建议**：改完先在本地做括号/引用自查 → 提交 → 等 `analyze` 绿
-（它比两个平台快得多，先卡这一关）→ 平台构建失败时只抓 `--log-failed` 里带 `•` 或 `What went wrong` 的行。
-一次只修一类错误，别在一个提交里混多个修复，否则定位成本很高。
+**给下一位 AI 的工作方式（重要）**：
+
+- 先读第 0、1、5 节，再看要改的那一节；**不要从头读全部源码**，`lib/` 只有约 6 千行但跨 5 个协议。
+- 改动前先 `grep` 现有调用点（`downloadTo` / `uploadFile` 的签名一变，五个驱动都得跟着改）。
+- 提交粒度：一个能力一个 commit。`analyze` 失败时 `gh run view --job <id> --log-failed` 只看带 `•` 的行。
+- 本地无法编译是硬约束，**不要为了"先跑一下"去装 Flutter SDK**；靠读代码 + analyze 反馈迭代。
+- 平台构建失败大多是 Gradle/PowerShell 侧（compileSdk、插件），优先怀疑依赖而不是业务代码。
 
 ---
 
@@ -308,12 +361,19 @@ compileSdk 抬到 36（只动 compileSdk，不碰 targetSdk/minSdk）。**这个
 | S3 | MinIO path-style | 能列、能传 >8 MB（走分片）、能删 |
 | 代理 | 给某个挂载配 HTTP 代理后断开代理 | 报「代理不可达」，另一个挂载直连不受影响 |
 | 队列 | 同时下 3 个文件 | 按并发数排队，其余显示「排队中」 |
-| 暂停/继续 | 传输中点暂停 | 本地半截文件被删除；继续后从头开始（当前语义） |
+| **续传（本地/SFTP）** | 传大文件，50% 时暂停 → 继续 | 从断点接着传，进度不回零；卡片显示「可从 xx 续传」 |
+| **续传（WebDAV 下载）** | 同上 | 服务器返回 206 时续传；返回 200 时静默从头重下且文件不损坏 |
+| **续传（WebDAV/S3 上传）** | 同上 | 明确整份重传（不报错、不产生错位文件） |
+| **多选批量** | 「选择」→ 全选 → 下载 | 全部入队；文件夹递归展开到本地同名目录 |
+| **批量删除** | 选 2 个文件 + 1 个文件夹 → 删除 | 三项都消失；失败项有汇总提示 |
+| **目录上传** | 「上传 → 上传文件夹」 | 远端目录结构与本地一致 |
+| **拖拽上传** | 从资源管理器拖 2 个文件到列表区 | 悬停出现高亮，松手后入队；只读挂载无反应 |
+| **预览** | 点图片 / .md 文件的「预览」 | 图片可缩放；文本等宽可选中；>24 MB 图片提示下载 |
 | 上传刷新 | 上传完成后看列表 | 新文件自动出现 |
 | 切挂载 | 传输中切换挂载 | 传输继续，列表切到新挂载 |
 | 断网 | 传输中断网 | 状态转「失败」并给出可读原因，不是崩溃 |
 
-> 上表是**建议的**回归用例；本轮只验证到「双端编译通过 + `flutter analyze` 零问题」，
+> 上表是**建议的**回归用例。本轮仍只验证到「双端编译通过 + `flutter analyze` 零问题」，
 > 没有真机/真服务端跑过（本机不装 Flutter、也没有测试用的 FTP/S3/WebDAV 服务）。
 > 第一次拿到产物的人应当把这张表跑一遍，并把结果补回到本文档。
 
@@ -327,9 +387,14 @@ compileSdk 抬到 36（只动 compileSdk，不碰 targetSdk/minSdk）。**这个
 | 2026-10-23 16:53 | `ab3d1ba` | ❌ | — | — | `writeBytes` 需要 `Uint8List`（用 `openRead()` 的 `List<int>` 直接传） |
 | 2026-10-23 16:58 | `bec26fa` | ✅ | ✅ | ❌ | `file_picker 8.x` 写死 `compileSdk 34`，与 lifecycle 要求的 36 冲突 |
 | 2026-10-23 17:08 | `c40180a` | ✅ | ✅ | ✅ | **P1 完成**：抬 compileSdk 后双端通过 |
+| 2026-10-23 22:05 | `4e4d743` | ✅ | ✅ | ✅ | P2-1：多选批量、文件夹上传、图片/文本预览 |
+| 2026-10-23 22:20 | `f304f7b` | ✅ | ✅ | ✅ | P2-2：断点续传（下载全协议 / 上传 FTP+SFTP+本地） |
+| 2026-10-23 22:22 | `f7f9515` | ❌ | — | — | `desktop_drop 0.9.2` 与 `file_picker 8.x` 的 `cross_file` 冲突，pub 求解失败 |
+| 2026-10-23 22:25 | `8e8bb7d` | ✅ | ✅ | ✅ | P2-3：降到 `desktop_drop 0.8.4`，拖拽上传通过双端 |
+| 2026-10-23 22:35 | `0237274` | ✅ | ✅ | ✅ | **P2 完成**：目录下载 + 版本 `0.3.0+3` |
 
-- 最近一次成功：run `39929031916`（commit `c40180a`），`analyze` 输出 `No issues found!`
-- 产物：`Nimbo-windows-x64-portable.zip` 12.3 MB、`app-release.apk` 19.2 MB
+- 最近一次成功：run `39970353975`（commit `0237274`），`analyze` 输出 `No issues found!`
+- 产物：`windows-x64-portable.zip` 12.53 MB（内含 `Nimbo.exe`）、`app-release.apk` 20.5 MB（arm64 release）
 - 耗时参考：analyze ≈ 1.5 min，windows ≈ 5 min，android ≈ 6 min
 
 **排错顺序**：先看 `analyze`（最快，绝大多数类型错误在这里就能拦住），
