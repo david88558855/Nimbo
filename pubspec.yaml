@@ -17,7 +17,7 @@ dependencies:
   flutter_secure_storage: ^9.2.2
   dartssh2: ^4.1.0
   file_picker: ^8.1.0
-  desktop_drop: ^0.9.2
+  desktop_drop: ^0.8.4
 
 dev_dependencies:
   flutter_test:

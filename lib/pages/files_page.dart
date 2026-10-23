@@ -1,9 +1,6 @@
-import 'dart:io';
-
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../app/theme.dart';
 import '../core/format.dart';
@@ -404,11 +401,10 @@ class _BodyState extends State<_Body> {
   Widget build(BuildContext context) {
     final state = widget.state;
     return DropTarget(
-      acceptedKinds: const {DropItemKind.file},
-      enabled: !state.readOnly,
-      onEnter: (_) => setState(() => _hover = true),
-      onLeave: () => setState(() => _hover = false),
-      onDrop: (details) async {
+      enable: !state.readOnly,
+      onDragEntered: (_) => setState(() => _hover = true),
+      onDragExited: (_) => setState(() => _hover = false),
+      onDragDone: (details) async {
         if (mounted) setState(() => _hover = false);
         await _handleDrop(context, state, details);
       },
@@ -447,23 +443,12 @@ class _BodyState extends State<_Body> {
     );
   }
 
-  /// 拖入的内容：桌面直接拿到本地路径；没有路径的平台回退成临时文件。
-  Future<void> _handleDrop(BuildContext context, AppState state, DropDetails details) async {
+  /// 拖入的内容：0.8.x 只解析本地文件，直接取 XFile.path 入队。
+  Future<void> _handleDrop(BuildContext context, AppState state, DropDoneDetails details) async {
     final paths = <String>[];
-    for (final item in details.items.whereType<DropFileItem>()) {
-      final local = item.localPath;
-      if (local != null && local.isNotEmpty) {
-        paths.add(local);
-        continue;
-      }
-      try {
-        final tmp = await getTemporaryDirectory();
-        final f = File('${tmp.path}${Platform.pathSeparator}${item.name}');
-        await f.writeAsBytes(await item.file.readAsBytes());
-        paths.add(f.path);
-      } catch (_) {
-        // 单个条目不可读就跳过，不影响同一批的其他文件
-      }
+    for (final file in details.files) {
+      final p = file.path;
+      if (p.isNotEmpty) paths.add(p);
     }
     if (paths.isEmpty) {
       if (mounted) {
