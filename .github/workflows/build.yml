@@ -67,8 +67,9 @@ jobs:
           fi
           echo "--- manifest 前 14 行 ---"
           sed -n '1,14p' "$MANIFEST"
-          echo "--- application 标签 ---"
-          grep -o '<application[^>]*>' "$MANIFEST"
+          echo "--- 校验 ---"
+          grep -c 'android.permission.INTERNET' "$MANIFEST" || true
+          grep -c 'usesCleartextTraffic' "$MANIFEST" || true
       - name: raise compileSdk
         run: |
           # file_picker 8.x 仍声明 compileSdk 34，而 flutter_plugin_android_lifecycle
