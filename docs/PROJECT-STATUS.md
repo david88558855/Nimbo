@@ -80,12 +80,13 @@ git -c http.version=HTTP/1.1 ls-remote https://github.com/david88558855/Nimbo.gi
 |---|---|---|
 | **P0 骨架** | 五个驱动能连、能列、能读写；双端外壳；云端构建跑通 | ✅ 完成 |
 | **P1 传输闭环** | 上传（file_picker）、传输队列、暂停/继续/取消/重试、速度与剩余时间、SFTP 走代理、S3 分片上传、SFTP 流式 | ✅ 完成（本轮） |
-| **P2 体验补齐** | 断点续传、预览、拖拽、多选批量、目录上传下载 | 🟡 基本完成（仅差托盘） |
-| **P3 打磨** | 传输记录持久化、限速、S3 分片并发、错误文案统一、自动化回归 | ⬜ 未开始 |
+| **P2 体验补齐** | 断点续传、预览、拖拽、多选批量、目录上传下载 | ✅ 完成 |
+| **P3 打磨** | 传输记录持久化 ✅、S3 目录分页删除 ✅、FTP 匿名 ✅、返回键逐级回退 ✅、移动端长按多选 ✅；限速、S3 分片续传/并发、WebDAV 上传续传、临时名 rename、托盘 ⬜ | 🟡 进行中 |
 
 **一句话现状**：五个协议都能真实读写，上传下载都能排队跑，代理对五个协议全部生效；
-大文件中断后能接着传（下载全协议，上传 FTP/SFTP/本地）；多选、目录上传下载、拖拽、预览都已可用；
-缺的是「系统托盘」「传输记录持久化」「限速」这类收尾项。
+大文件中断后能接着传（下载全协议，上传 FTP/SFTP/本地）；多选、目录上传下载、拖拽、预览、
+文件页聚合根、返回键逐级回退、传输记录持久化都已可用；
+剩余的是「托盘」「限速」「S3/WebDAV 上传续传」这类需要真机联调的高风险项。
 
 ---
 
@@ -172,6 +173,16 @@ downloadTo / uploadFile / mkdir / removeEntry / move / probe`，错误统一抛 
 | 预览 | 图片 `InteractiveViewer`（≤24 MB）、文本等宽可选中（≤1 MB），超限提示下载 |
 
 **注意**：`file_picker` 锁 8.x 期间不能升 `desktop_drop` 到 0.9.x，否则 pub 求解失败。
+
+### 2.8 P3 打磨（进行中）
+
+| 能力 | 实现要点 |
+|---|---|
+| FTP 匿名 | `Mount.anonymous` + 表单开关（开启后用户名/密码置灰）；`USER` 之后**按回复码**决定是否补 `PASS`：230 说明直接通过、331 才发密码，匿名默认 `anonymous@` |
+| 返回键 | `PopScope`：非文件页 → 文件页；多选 → 退出多选；子目录 → 上级；挂载根 → 全部挂载；**只有「全部挂载」根允许退出应用** |
+| S3 目录删除 | `IsTruncated` + `NextContinuationToken` 循环，不再只删前 1000 个键 |
+| 长按多选 | 行内长按进入多选（移动端主入口），单项操作走行尾「更多」菜单 |
+| 传输记录持久化 | `core/transfer_store.dart` → `userdata/transfers.json`，保留 60 条；启动恢复为「已暂停」，不自动重跑；状态变化 700 ms 防抖落盘，退出时再落一次 |
 
 ---
 
@@ -326,22 +337,19 @@ HTTP 类只接受 `206 Partial Content`：服务器返回 200 说明忽略了 Ra
 
 ---
 
-## 6. 待办（按建议顺序，P2 已完成项已移出）
+## 6. 待办（按建议顺序，P2/P3 已完成项已移出）
 
 | # | 事项 | 为什么 | 难度 | 主要文件 |
 |---|---|---|---|---|
-| 1 | **Windows 系统托盘**（关闭/最小化到托盘、托盘菜单显示窗口/退出） | 桌面端最后一块体验缺口。`tray_manager 0.8` 换了全新 native API（`TrayIcon.create()`），并且需要一张 png/ico 图标资源与 `window_manager` 拦截关闭事件 | 中 | `main.dart`、`shell.dart`、`pubspec.yaml`、`assets/` |
-| 2 | **S3 分片续传 + 分片并发** | 中断后整份重传成本最高；并发能改善高延迟链路吞吐。需要持久化 `uploadId` 与已完成分片表 | 高 | `s3_driver.dart`、`transfer_manager.dart`（任务级状态） |
-| 3 | **WebDAV 上传续传** | 目前中断必留半截文件。标准 WebDAV 无追加语义，只能走第三方分块扩展或临时名 + rename | 高 | `webdav_driver.dart` |
+| 1 | **Windows 系统托盘**（关闭/最小化到托盘、托盘菜单） | 桌面端最后一块体验缺口。`tray_manager 0.8` 是全新 native API（`TrayIcon.create()`），需要图标资源与 `window_manager` 拦截关闭事件 | 中 | `main.dart`、`shell.dart`、`pubspec.yaml`、`assets/` |
+| 2 | **S3 分片续传 + 分片并发** | 中断后整份重传成本最高；并发能改善高延迟链路。需持久化 `uploadId` 与已完成分片表 | 高 | `s3_driver.dart`、`transfer_manager.dart` |
+| 3 | **WebDAV 上传续传** | 标准 WebDAV 无追加语义，只能走第三方分块扩展或临时名 + rename | 高 | `webdav_driver.dart` |
 | 4 | **上传先写临时名再 rename** | 解决 WebDAV/FTP 中断残留；需要 `StorageDriver` 加 `atomic` 能力位 | 中 | `storage_driver.dart` + 三个驱动 |
-| 5 | **S3 目录删除分页** | 见坑 9，超大目录会漏删 | 低 | `s3_driver.dart` |
-| 6 | **传输记录持久化** | 重启后任务列表清空；至少保存失败/未完成项 | 中 | `core/store.dart`、`transfer_manager.dart` |
-| 7 | **限速** | 上传/下载限速（全局或单任务） | 中 | 传输循环加令牌桶 |
-| 8 | **FTPS（AUTH TLS）或改文案** | `models.dart` 的 hint 写着 FTPS，实际只有明文 | 低 | `ftp_driver.dart` / `models.dart` |
-| 9 | **SFTP / 本地容量** | 现在恒为「未知」；SFTP 可试 `statvfs`（`SftpFile.statvfs()` 已在依赖里） | 低 | `sftp_driver.space()`、`local_driver.space()` |
-| 10 | **统一错误文案** | 代理不通 vs 目标不通要能区分；`DriverErrorKind` 已有，缺映射表 | 低 | `ui/` 新增文案映射 + 各 `catch` |
-| 11 | **移动端多选手势** | 当前长按仍是操作菜单，多选只能点顶部「选择」 | 低 | `files_page.dart` |
-| 12 | **预览扩展（音视频 / PDF）** | 现在只覆盖图片与文本；`media_kit` 需评估包体积 | 高 | `preview_page.dart` |
+| 5 | **限速** | 上传/下载限速（全局或单任务） | 中 | 传输循环加令牌桶 |
+| 6 | **SFTP / 本地容量** | 现在恒为「未知」；SFTP 可试 `SftpClient.statvfs`（API 未在文档站生成，需实际验证） | 低 | `sftp_driver.space()`、`local_driver.space()` |
+| 7 | **统一错误文案** | 代理不通 vs 目标不通要能区分；`DriverErrorKind` 已有，缺映射表 | 低 | `ui/` 新增文案映射 + 各 `catch` |
+| 8 | **预览扩展（音视频 / PDF）** | 现在只覆盖图片与文本；`media_kit` 需评估包体积 | 高 | `preview_page.dart` |
+| 9 | **FTPS（AUTH TLS）** | 目前只有明文 FTP，文案已改为「明文 FTP」；实现需要 TLS 升级 | 中 | `ftp_driver.dart` |
 
 ---
 
@@ -410,6 +418,8 @@ HTTP 类只接受 `206 Partial Content`：服务器返回 200 说明忽略了 Ra
 | 2026-10-23 23:25 | `a2270c1` | ✅ | ✅ | ✅ | 同上，重跑后三绿：release APK 已含 `INTERNET` + `usesCleartextTraffic` |
 | 2026-10-24 05:45 | `8e09e26` | ✅ | ✅ | ✅ | **WebDAV 401 修复**：PROPFIND/MKCOL/MOVE 改用 `_dio.request`，恢复 Authorization 头 |
 | 2026-10-24 06:02 | `b5f1851` | ✅ | ✅ | ✅ | 文件页根改为「全部挂载」聚合视图（`browseAll`），不再只渲染单个挂载 |
+| 2026-10-24 06:30 | `99c48e4` | ✅ | ✅ | ✅ | P3-1：FTP 匿名、返回键逐级回退、S3 目录分页删除、长按多选 |
+| 2026-10-24 06:36 | `67431e8` | ✅ | ✅ | ✅ | P3-2：传输记录持久化（`transfers.json`，恢复为已暂停） |
 
 - 最近一次成功：run `39970353975`（commit `0237274`），`analyze` 输出 `No issues found!`
 - 产物：`windows-x64-portable.zip` 12.53 MB（内含 `Nimbo.exe`）、`app-release.apk` 20.5 MB（arm64 release）
