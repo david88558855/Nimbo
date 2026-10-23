@@ -52,6 +52,24 @@ jobs:
           flutter create --platforms=android --org com.nimbo --project-name nimbo "$RUNNER_TEMP/scaffold"
           cp -r "$RUNNER_TEMP/scaffold/android" ./android
           sed -i 's/android:label="nimbo"/android:label="Nimbo"/' android/app/src/main/AndroidManifest.xml
+      - name: raise compileSdk
+        run: |
+          # file_picker 8.x 仍声明 compileSdk 34，而 flutter_plugin_android_lifecycle
+          # 已要求 36，AAR metadata 检查会直接失败。把 app 与 pub-cache 里写死的
+          # compileSdk 统一抬到 36（只改 compileSdk，不动 targetSdk / minSdk）。
+          if [ -f android/app/build.gradle.kts ]; then
+            sed -i -E 's/^([[:space:]]*)compileSdk(Version)?[[:space:]]*=?[[:space:]]*[^[:space:]]+/\1compileSdk = 36/' android/app/build.gradle.kts
+            grep -n 'compileSdk' android/app/build.gradle.kts || true
+          elif [ -f android/app/build.gradle ]; then
+            sed -i -E 's/^([[:space:]]*)compileSdk(Version)?[[:space:]]*=?[[:space:]]*[^[:space:]]+/\1compileSdk 36/' android/app/build.gradle
+            grep -n 'compileSdk' android/app/build.gradle || true
+          fi
+          find "$HOME/.pub-cache/hosted/pub.dev" -maxdepth 4 -path '*/android/build.gradle*' -print0 \
+            | xargs -0 -r sed -i -E \
+                -e 's/(compileSdkVersion)([[:space:]]*=?[[:space:]]*)[0-9]+/\1\2 36/g' \
+                -e 's/(compileSdk)([[:space:]]*=?[[:space:]]*)[0-9]+/\1\2 36/g'
+          grep -rn --include='build.gradle*' -E '^\s*compileSdk' "$HOME/.pub-cache/hosted/pub.dev" \
+            | sed 's|.*pub.dev/||' | sort -u | head -20
       - name: build apk
         run: flutter build apk --release --target-platform android-arm64
       - uses: actions/upload-artifact@v4
