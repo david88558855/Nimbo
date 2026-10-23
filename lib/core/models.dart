@@ -14,7 +14,7 @@ extension MountProtocolX on MountProtocol {
       };
 
   String get hint => switch (this) {
-        MountProtocol.ftp => '明文 / FTPS · 21',
+        MountProtocol.ftp => '明文 FTP · 21',
         MountProtocol.sftp => 'SSH2 · 22',
         MountProtocol.s3 => 'S3 兼容 · 443',
         MountProtocol.webdav => 'HTTP / HTTPS · 443',
@@ -133,6 +133,7 @@ class Mount {
     this.region = '',
     this.pathStyle = true,
     this.readOnly = false,
+    this.anonymous = false,
     this.proxy = const ProxyConfig(),
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
@@ -148,6 +149,10 @@ class Mount {
   String region;
   bool pathStyle;
   bool readOnly;
+
+  /// FTP 匿名登录：不发送真实账号，用 anonymous / anonymous@ 登录。
+  bool anonymous;
+
   ProxyConfig proxy;
   final DateTime createdAt;
 
@@ -179,6 +184,7 @@ class Mount {
         'region': region,
         'pathStyle': pathStyle,
         'readOnly': readOnly,
+        'anonymous': anonymous,
         'proxy': proxy.toJson(),
         'createdAt': createdAt.toIso8601String(),
       };
@@ -195,6 +201,7 @@ class Mount {
         region: (j['region'] as String?) ?? '',
         pathStyle: j['pathStyle'] != false,
         readOnly: j['readOnly'] == true,
+        anonymous: j['anonymous'] == true,
         proxy: ProxyConfig.fromJson(j['proxy'] as Map<String, dynamic>?),
         createdAt: DateTime.tryParse((j['createdAt'] as String?) ?? ''),
       );

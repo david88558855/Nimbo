@@ -26,6 +26,7 @@ class _AddMountDialogState extends State<AddMountDialog> {
   final _region = TextEditingController();
   bool _pathStyle = true;
   bool _readOnly = false;
+  bool _anonymous = false;
 
   bool _proxyEnabled = false;
   ProxyType _proxyType = ProxyType.http;
@@ -75,6 +76,8 @@ class _AddMountDialogState extends State<AddMountDialog> {
     });
   }
 
+  bool get _isAnonymous => _protocol == MountProtocol.ftp && _anonymous;
+
   Mount _buildMount() => Mount(
         id: 'm${DateTime.now().millisecondsSinceEpoch}',
         name: _name.text.trim().isEmpty ? _protocol.label : _name.text.trim(),
@@ -87,6 +90,7 @@ class _AddMountDialogState extends State<AddMountDialog> {
         region: _region.text.trim(),
         pathStyle: _pathStyle,
         readOnly: _readOnly,
+        anonymous: _protocol == MountProtocol.ftp && _anonymous,
         proxy: ProxyConfig(
           enabled: _proxyEnabled,
           type: _proxyType,
@@ -300,7 +304,7 @@ class _AddMountDialogState extends State<AddMountDialog> {
   }
 
   Widget _field(String label, TextEditingController controller,
-      {String? hint, bool obscure = false, TextInputType? keyboard}) {
+      {String? hint, bool obscure = false, TextInputType? keyboard, bool enabled = true}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Column(
@@ -311,7 +315,12 @@ class _AddMountDialogState extends State<AddMountDialog> {
             controller: controller,
             obscureText: obscure,
             keyboardType: keyboard,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            enabled: enabled,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: enabled ? null : NimboColors.ink4,
+            ),
             decoration: nimboInput(hint: hint),
           ),
         ],
@@ -364,8 +373,10 @@ class _AddMountDialogState extends State<AddMountDialog> {
           const Text('第三方自建 S3 建议开启；阿里云 OSS 等只支持虚拟托管，可关闭。',
               style: TextStyle(fontSize: 10.5, height: 1.6, color: NimboColors.ink3)),
         ] else ...[
-          _field('用户名', _user),
-          _field('密码', _password, obscure: true),
+          if (_protocol == MountProtocol.ftp)
+            _switchRow('匿名登录（anonymous）', _anonymous, (v) => setState(() => _anonymous = v)),
+          _field('用户名', _user, enabled: !_isAnonymous),
+          _field('密码', _password, obscure: true, enabled: !_isAnonymous),
           _field('根路径（可空）', _rootPath, hint: '/'),
         ],
         _switchRow('只读挂载', _readOnly, (v) => setState(() => _readOnly = v)),

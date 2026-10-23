@@ -41,9 +41,16 @@ class FtpDriver extends StorageDriver {
     _session = session;
     try {
       await session.expect(220);
-      await session.command('USER ${mount.username.isEmpty ? 'anonymous' : mount.username}', 331, 230);
-      if (mount.username.isNotEmpty) {
-        await session.command('PASS $password', 230);
+      // 匿名模式：用户名固定 anonymous，密码用 anonymous@（部分服务器不校验）。
+      final anonymous = mount.anonymous || mount.username.trim().isEmpty;
+      final user = anonymous ? 'anonymous' : mount.username;
+      final userReply = await session.command('USER $user', 331, 230);
+      // 只有服务器回了 331 才需要密码；回 230 说明账号已直接通过（匿名服务器常见）。
+      if (userReply.code == 331) {
+        final pass = anonymous
+            ? (password.trim().isEmpty ? 'anonymous@' : password)
+            : password;
+        await session.command('PASS $pass', 230, 202);
       }
       await session.command('TYPE I', 200);
     } on DriverException {

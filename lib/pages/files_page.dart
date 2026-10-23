@@ -761,7 +761,8 @@ class _Row extends StatelessWidget {
             state.togglePicked(entry);
             return;
           }
-          _showActions(context, state, entry);
+          // 长按进入多选（移动端主要入口）；单项操作走行尾「更多」菜单。
+          state.beginSelection(entry);
         },
         child: Container(
           height: wide ? 44 : 56,

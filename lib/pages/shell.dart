@@ -34,6 +34,24 @@ class _NimboShellState extends State<NimboShell> {
 
   void _go(int index) => setState(() => _index = index);
 
+  /// 系统返回键：逐级回退，只有在「全部挂载」根才允许退出应用。
+  bool get _canPop => _index == 0 && state.browseAll && !state.selectionMode;
+
+  void _onPop(bool didPop, Object? result) {
+    if (didPop) return;
+    if (_index != 0) {
+      _go(0);
+      return;
+    }
+    if (state.selectionMode) {
+      state.exitSelection();
+      return;
+    }
+    if (state.browseAll) return;
+    // 目录 → 上级目录；挂载根 → 全部挂载（AppState.up 内部处理）
+    state.up();
+  }
+
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 900;
@@ -45,57 +63,65 @@ class _NimboShellState extends State<NimboShell> {
     ];
 
     if (wide) {
-      return Scaffold(
-        backgroundColor: NimboColors.bg,
-        body: Row(
-          children: [
-            _Rail(
-              state: state,
-              index: _index,
-              onSelect: _go,
-              onAddMount: _openAddMount,
-            ),
-            const VerticalDivider(width: 1, thickness: 1, color: NimboColors.line),
-            Expanded(child: pages[_index]),
-          ],
+      return PopScope(
+        canPop: _canPop,
+        onPopInvokedWithResult: _onPop,
+        child: Scaffold(
+          backgroundColor: NimboColors.bg,
+          body: Row(
+            children: [
+              _Rail(
+                state: state,
+                index: _index,
+                onSelect: _go,
+                onAddMount: _openAddMount,
+              ),
+              const VerticalDivider(width: 1, thickness: 1, color: NimboColors.line),
+              Expanded(child: pages[_index]),
+            ],
+          ),
         ),
       );
     }
 
-    return Scaffold(
-      backgroundColor: NimboColors.bg,
-      body: SafeArea(child: pages[_index]),
-      bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          border: Border(top: BorderSide(color: NimboColors.line)),
-        ),
-        child: NavigationBar(
-          height: 62,
-          selectedIndex: _index,
-          backgroundColor: Colors.white,
-          surfaceTintColor: Colors.transparent,
-          indicatorColor: NimboColors.navOnBg,
-          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-          onDestinationSelected: _go,
-          destinations: const [
-            NavigationDestination(
-                icon: Icon(Icons.folder_outlined, size: 20),
-                selectedIcon: Icon(Icons.folder_rounded, size: 20, color: NimboColors.navOn),
-                label: '文件'),
-            NavigationDestination(
-                icon: Icon(Icons.swap_vert_rounded, size: 20),
-                selectedIcon: Icon(Icons.swap_vert_rounded, size: 20, color: NimboColors.navOn),
-                label: '传输'),
-            NavigationDestination(
-                icon: Icon(Icons.dns_outlined, size: 20),
-                selectedIcon: Icon(Icons.dns_rounded, size: 20, color: NimboColors.navOn),
-                label: '挂载'),
-            NavigationDestination(
-                icon: Icon(Icons.tune_rounded, size: 20),
-                selectedIcon: Icon(Icons.tune_rounded, size: 20, color: NimboColors.navOn),
-                label: '设置'),
-          ],
+    return PopScope(
+      canPop: _canPop,
+      onPopInvokedWithResult: _onPop,
+      child: Scaffold(
+        backgroundColor: NimboColors.bg,
+        body: SafeArea(child: pages[_index]),
+        bottomNavigationBar: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: NimboColors.line)),
+          ),
+          child: NavigationBar(
+            height: 62,
+            selectedIndex: _index,
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            indicatorColor: NimboColors.navOnBg,
+            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+            onDestinationSelected: _go,
+            destinations: const [
+              NavigationDestination(
+                  icon: Icon(Icons.folder_outlined, size: 20),
+                  selectedIcon: Icon(Icons.folder_rounded, size: 20, color: NimboColors.navOn),
+                  label: '文件'),
+              NavigationDestination(
+                  icon: Icon(Icons.swap_vert_rounded, size: 20),
+                  selectedIcon: Icon(Icons.swap_vert_rounded, size: 20, color: NimboColors.navOn),
+                  label: '传输'),
+              NavigationDestination(
+                  icon: Icon(Icons.dns_outlined, size: 20),
+                  selectedIcon: Icon(Icons.dns_rounded, size: 20, color: NimboColors.navOn),
+                  label: '挂载'),
+              NavigationDestination(
+                  icon: Icon(Icons.tune_rounded, size: 20),
+                  selectedIcon: Icon(Icons.tune_rounded, size: 20, color: NimboColors.navOn),
+                  label: '设置'),
+            ],
+          ),
         ),
       ),
     );

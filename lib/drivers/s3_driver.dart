@@ -463,17 +463,28 @@ class S3Driver extends StorageDriver {
       await _send<dynamic>('DELETE', _requestPath(_key(entry.path)));
       return;
     }
+    // 目录删除必须分页：单次 ListObjectsV2 最多 1000 个键，大目录会漏删。
     final prefix = _key(entry.path);
-    final res = await _send<dynamic>(
-      'GET',
-      _requestPath(''),
-      query: {'list-type': '2', 'prefix': '$prefix/', 'max-keys': '1000'},
-    );
-    final text = res.data as String;
-    for (final node in XmlDocument.parse(text).findAllElements('Contents')) {
-      final key = _firstText(node, 'Key') ?? '';
-      if (key.isEmpty) continue;
-      await _send<dynamic>('DELETE', _requestPath(key));
+    String? token;
+    while (true) {
+      final query = <String, String>{
+        'list-type': '2',
+        'prefix': '$prefix/',
+        'max-keys': '1000',
+        if (token != null) 'continuation-token': token,
+      };
+      final res = await _send<dynamic>('GET', _requestPath(''), query: query);
+      final doc = XmlDocument.parse(_bodyText(res));
+      for (final node in doc.findAllElements('Contents')) {
+        final key = _firstText(node, 'Key') ?? '';
+        if (key.isEmpty) continue;
+        await _send<dynamic>('DELETE', _requestPath(key));
+      }
+      final truncated =
+          (_firstText(doc.rootElement, 'IsTruncated') ?? '').toLowerCase() == 'true';
+      if (!truncated) break;
+      token = _firstText(doc.rootElement, 'NextContinuationToken');
+      if (token == null || token.isEmpty) break;
     }
   }
 
