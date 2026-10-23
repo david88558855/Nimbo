@@ -30,7 +30,7 @@ class AppState extends ChangeNotifier {
         transfers.tasks.where((t) => t.status == TransferStatus.done).length;
     if (doneCount != _seenDone) {
       _seenDone = doneCount;
-      if (hasMount) unawaited(refresh());
+      if (!browseAll && hasMount) unawaited(refresh());
     }
   }
 
@@ -47,6 +47,9 @@ class AppState extends ChangeNotifier {
   bool loading = false;
   String? error;
   RemoteEntry? selected;
+
+  /// 文件页是否停在「全部挂载」根（聚合视图）。启动与删除挂载后回到这里。
+  bool browseAll = true;
 
   /// 多选（按 path 记录，刷新后自动丢弃已不存在的项）。
   final Set<String> _picked = <String>{};
@@ -74,15 +77,23 @@ class AppState extends ChangeNotifier {
   Future<void> boot() async {
     await _prefs.load();
     transfers.maxConcurrent = _prefs.settings.maxConcurrent;
-    final mount = activeMount;
-    if (mount != null) {
-      await open(mount);
-    } else {
-      notifyListeners();
-    }
+    // 启动停在「全部挂载」：根目录先让用户看到所有挂载，而不是直接钻进上次那个。
+    browseAll = true;
+    notifyListeners();
+  }
+
+  /// 回到「全部挂载」根，保留已建立的连接以便再次进入时更快。
+  void showAll() {
+    browseAll = true;
+    loading = false;
+    error = null;
+    selected = null;
+    _clearPicked();
+    notifyListeners();
   }
 
   Future<void> open(Mount mount) async {
+    browseAll = false;
     loading = true;
     error = null;
     entries = const [];
@@ -143,7 +154,13 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> up() => cd(parentPath(path));
+  Future<void> up() async {
+    if (path == '/') {
+      showAll();
+      return;
+    }
+    await cd(parentPath(path));
+  }
 
   void select(RemoteEntry? entry) {
     if (selected?.path == entry?.path) return;
@@ -262,25 +279,22 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> removeMount(Mount mount) async {
-    final isActive = mount.id == _prefs.activeMountId;
+    final browsing = !browseAll && _prefs.activeMountId == mount.id;
     _prefs.mounts.removeWhere((m) => m.id == mount.id);
     await SecureStore.delete(mount.id);
     transfers.dropMount(mount.id);
-    if (isActive) {
+    if (_prefs.activeMountId == mount.id) {
       _prefs.activeMountId = _prefs.mounts.isEmpty ? null : _prefs.mounts.first.id;
+    }
+    if (browsing) {
       await _driver?.close();
       _driver = null;
+      entries = const [];
+      error = null;
     }
     await _prefs.save();
-    if (isActive) {
-      final next = activeMount;
-      if (next != null) {
-        await open(next);
-      } else {
-        entries = const [];
-        error = null;
-        notifyListeners();
-      }
+    if (browsing) {
+      showAll();
     } else {
       notifyListeners();
     }

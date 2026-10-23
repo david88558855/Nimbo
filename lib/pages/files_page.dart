@@ -32,6 +32,9 @@ class FilesPage extends StatelessWidget {
         onAction: onAddMount,
       );
     }
+    if (state.browseAll) {
+      return _AllMounts(state: state, onAddMount: onAddMount);
+    }
     final wide = MediaQuery.sizeOf(context).width >= 900;
     return Column(
       children: [
@@ -59,6 +62,165 @@ class FilesPage extends StatelessWidget {
   }
 }
 
+/// 「全部挂载」根：所有挂载的入口。点击卡片才进入该挂载的目录树。
+class _AllMounts extends StatelessWidget {
+  const _AllMounts({required this.state, required this.onAddMount});
+  final AppState state;
+  final VoidCallback onAddMount;
+
+  @override
+  Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= 900;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('全部挂载', style: NimboText.display),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${state.mounts.length} 个挂载 · 点击进入',
+                    style: const TextStyle(
+                        fontSize: 10.5, fontWeight: FontWeight.w600, color: NimboColors.ink3),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              NimboButton('添加挂载',
+                  kind: NimboButtonKind.primary,
+                  icon: Icons.add_rounded,
+                  onPressed: onAddMount),
+            ],
+          ),
+        ),
+        Expanded(
+          child: GridView.builder(
+            padding: EdgeInsets.fromLTRB(18, 0, 18, state.tasks.isEmpty ? 18 : 8),
+            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: wide ? 340 : 560,
+              mainAxisExtent: 104,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+            ),
+            itemCount: state.mounts.length,
+            itemBuilder: (_, i) => _MountCard(state: state, mount: state.mounts[i]),
+          ),
+        ),
+        if (state.tasks.isNotEmpty) _TaskStrip(state: state),
+      ],
+    );
+  }
+}
+
+class _MountCard extends StatelessWidget {
+  const _MountCard({required this.state, required this.mount});
+  final AppState state;
+  final Mount mount;
+
+  static IconData _icon(MountProtocol p) => switch (p) {
+        MountProtocol.ftp => Icons.swap_horiz_rounded,
+        MountProtocol.sftp => Icons.terminal_rounded,
+        MountProtocol.s3 => Icons.cloud_outlined,
+        MountProtocol.webdav => Icons.language_rounded,
+        MountProtocol.local => Icons.folder_outlined,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final isActive = state.activeId == mount.id;
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(NimboRadius.panel),
+        border: Border.all(color: isActive ? const Color(0xFFBFE4F8) : NimboColors.line),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => state.open(mount),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                    color: mount.protocol.bg,
+                    borderRadius: BorderRadius.circular(11)),
+                child: Icon(_icon(mount.protocol), size: 19, color: mount.protocol.color),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            mount.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontSize: 12.5, fontWeight: FontWeight.w800, color: NimboColors.ink),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        ProtocolBadge(mount.protocol, compact: true),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      mount.subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 10,
+                          fontFamily: 'monospace',
+                          color: NimboColors.ink3),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        StatusDot(
+                            color: isActive ? NimboColors.ok : const Color(0xFFB6C6D6),
+                            size: 5),
+                        const SizedBox(width: 5),
+                        Text(
+                          isActive ? '当前挂载' : (mount.readOnly ? '只读' : '可读写'),
+                          style: const TextStyle(
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w600,
+                              color: NimboColors.ink3),
+                        ),
+                        if (mount.proxy.enabled) ...[
+                          const SizedBox(width: 8),
+                          const Icon(Icons.shield_outlined, size: 10, color: NimboColors.ink4),
+                          const SizedBox(width: 3),
+                          Text(mount.proxy.type.label,
+                              style: const TextStyle(fontSize: 9.5, color: NimboColors.ink3)),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, size: 17, color: NimboColors.ink4),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _Header extends StatelessWidget {
   const _Header({required this.state, required this.onAddMount, this.compact = false});
   final AppState state;
@@ -80,17 +242,39 @@ class _Header extends StatelessWidget {
           Row(
             children: [
               InkWell(
+                onTap: state.showAll,
+                borderRadius: BorderRadius.circular(6),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+                  child: Row(
+                    children: [
+                      Icon(Icons.apps_rounded, size: 12, color: NimboColors.ink3),
+                      SizedBox(width: 5),
+                      Text('全部挂载',
+                          style: TextStyle(
+                              fontSize: 10.5, fontWeight: FontWeight.w600, color: NimboColors.ink3)),
+                    ],
+                  ),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 2),
+                child: Text('/', style: TextStyle(fontSize: 10, color: NimboColors.ink4)),
+              ),
+              InkWell(
                 onTap: () => state.cd('/'),
                 borderRadius: BorderRadius.circular(6),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
                   child: Row(
                     children: [
-                      const Icon(Icons.home_rounded, size: 12, color: NimboColors.ink3),
+                      const Icon(Icons.folder_outlined, size: 11, color: NimboColors.ink3),
                       const SizedBox(width: 5),
                       Text(mount.name,
-                          style: const TextStyle(
-                              fontSize: 10.5, fontWeight: FontWeight.w600, color: NimboColors.ink3)),
+                          style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                              color: segments.isEmpty ? NimboColors.ink2 : NimboColors.ink3)),
                     ],
                   ),
                 ),

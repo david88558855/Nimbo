@@ -155,7 +155,10 @@ class _Rail extends StatelessWidget {
             icon: Icons.folder_rounded,
             label: '全部文件',
             selected: index == 0,
-            onTap: () => onSelect(0),
+            onTap: () {
+              state.showAll();
+              onSelect(0);
+            },
           ),
           _NavItem(
             icon: Icons.swap_vert_rounded,
@@ -191,7 +194,10 @@ class _Rail extends StatelessWidget {
                   _MountRow(
                     mount: m,
                     selected: m.id == active?.id,
-                    onTap: () => state.open(m),
+                    onTap: () {
+                      state.open(m);
+                      onSelect(0);
+                    },
                   ),
               ],
             ),
