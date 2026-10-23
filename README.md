@@ -34,12 +34,23 @@ lib/
     net.dart             HTTP CONNECT / SOCKS5 连接层（Socket + HttpClient 适配）
     sftp_socket.dart     把代理隧道包装成 dartssh2 的 SSHSocket
   pages/                 桌面三栏 / 移动底部 Tab 的自适应外壳与各页面
-  state/                 app_state（浏览会话）+ transfer_manager（传输队列）
+  state/                 app_state（浏览会话 + 聚合根）+ transfer_manager（传输队列）
+  platform/              仅 Windows：托盘（desktop_shell）+ 单实例（single_instance）
+assets/                  托盘图标（tray.ico / tray.png）
 design/                  设计稿（单文件 HTML）
 docs/                    技术分析
 ```
 
-## 当前状态（P1，已通过云端构建）
+## 进度总览
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| P0 骨架 | 五协议能连能读写、双端外壳、云端构建 | ✅ |
+| P1 传输闭环 | 上传队列、暂停/继续/取消/重试、S3 分片、SFTP 流式 | ✅ |
+| P2 体验补齐 | 断点续传、多选批量、目录上传下载、拖拽、预览、聚合根 | ✅ |
+| P3 打磨 | 传输记录、S3 目录分页、FTP 匿名、返回键、长按多选、托盘、单实例、便携凭据 | 🟡 进行中（剩余见 `docs/PROJECT-STATUS.md` 第 6 节） |
+
+## 当前状态（P3 进行中，云端构建三绿）
 
 **存储与连接**
 

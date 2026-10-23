@@ -14,7 +14,7 @@
 | **硬约束** | **禁止本地编译**。本机没有 Flutter SDK，所有编译、静态检查、依赖解析只在 GitHub Actions 里发生 |
 | 真相来源 | `lib/` + `pubspec.yaml` + `.github/workflows/build.yml`。`android/`、`windows/` **不入库**，每次构建由 CI 现生成 |
 | 设计稿 | `design/index.html`（单文件、真实 CSS 渲染、可离线打开，v1.2） |
-| 当前版本 | `pubspec.yaml` → `0.3.0+3` |
+| 当前版本 | `pubspec.yaml` → `0.3.0+3`（P3 未升版本号，以 git 提交号为准，最新 `8b56751`） |
 
 **工具链（CI 实测）**：Flutter 3.47.7 stable / Dart 3.13.5 / Java 17（temurin）/
 runner `ubuntu-latest` + `windows-latest`。`pubspec.yaml` 的 SDK 约束写的是 `>=3.3.0`，
@@ -179,14 +179,13 @@ downloadTo / uploadFile / mkdir / removeEntry / move / probe`，错误统一抛 
 | 能力 | 实现要点 |
 |---|---|
 | FTP 匿名 | `Mount.anonymous` + 表单开关（开启后用户名/密码置灰）；`USER` 之后**按回复码**决定是否补 `PASS`：230 说明直接通过、331 才发密码，匿名默认 `anonymous@` |
-| 返回键 | `PopScope`：非文件页 → 文件页；多选 → 退出多选；子目录 → 上级；挂载根 → 全部挂载；**只有「全部挂载」根允许退出应用** |
+| 返回键 | `PopScope`（`canPop` 恒为 false，全部自己处理）：非文件页 → 文件页；多选 → 退出多选；子目录 → 上级；挂载根 → 全部挂载；**到根后第一次只弹提示，2 秒内再按一次才 `SystemNavigator.pop()`** |
 | S3 目录删除 | `IsTruncated` + `NextContinuationToken` 循环，不再只删前 1000 个键 |
 | 长按多选 | 行内长按进入多选（移动端主入口），单项操作走行尾「更多」菜单 |
 | 传输记录持久化 | `core/transfer_store.dart` → `userdata/transfers.json`，保留 60 条；启动恢复为「已暂停」，不自动重跑；状态变化 700 ms 防抖落盘，退出时再落一次 |
-| Windows 托盘 | `core`… 见 `lib/platform/desktop_shell.dart`；`assets/tray.ico` 由脚本生成。左键单击无反应、双击显示窗口、右键菜单「显示主窗口 / 退出」。0.5.x 兼容层会丢弃 `DoubleClicked`，所以额外直接监听底层 `TrayIconDoubleClickedEvent` 兜底 |
+| Windows 托盘 | `lib/platform/desktop_shell.dart` + `assets/tray.ico`（脚本生成的 256px 圆角 N）。左键单击无反应、双击显示/还原/聚焦、右键菜单「显示主窗口 / 退出」 |
 | 单实例 | `lib/platform/single_instance.dart`：回环 47913 端口，第二个进程写入 `show` 后 `exit(0)`；不用锁文件，进程退出端口自然释放 |
 | 便携凭据 | Windows 双写 `userdata/credentials.dat`（固定密钥 XOR + base64），读取优先系统凭据库、失败回落便携文件；删挂载清两边。**这是可逆混淆，不是加密**，只解决「整个目录拷走密码还在」 |
-| 双击返回 | 到「全部挂载」根后，第一次返回只弹提示，2 秒内再按一次才 `SystemNavigator.pop()` |
 
 ---
 
@@ -194,12 +193,16 @@ downloadTo / uploadFile / mkdir / removeEntry / move / probe`，错误统一抛 
 
 ```
 lib/
-  main.dart                    入口：boot() 后进入 NimboShell
+  main.dart                    入口：单实例 → boot() → NimboApp；Windows 首帧后初始化托盘
   app/theme.dart               设计 token（颜色/字号/圆角）+ ThemeData（单一浅色）
   core/
-    models.dart                Mount / ProxyConfig / RemoteEntry / TransferTask / 枚举与扩展
+    models.dart                Mount / ProxyConfig / RemoteEntry / TransferTask（含 toJson/fromJson）/ 枚举与扩展
     format.dart                路径拼接与规范化、字节/速度/时间格式化、文件类型→图标与配色
-    store.dart                 AppPaths（便携 userdata）、Prefs（prefs.json）、SecureStore
+    store.dart                 AppPaths（便携 userdata）、Prefs、SecureStore（系统凭据 + Windows 便携双写）
+    transfer_store.dart        传输记录持久化（userdata/transfers.json，保留 60 条）
+  platform/                    ← 仅 Windows 生效，Android 上全部被 Platform.isWindows 挡掉
+    desktop_shell.dart         托盘图标/右键菜单/窗口显隐；单击无反应、双击显示
+    single_instance.dart       回环端口 47913 的单实例保护
   drivers/
     storage_driver.dart        统一接口 + DriverException + Capability
     net.dart                   ProxyTunnel（CONNECT/SOCKS5）+ TunnelSocket + buildHttpClient
@@ -222,6 +225,8 @@ lib/
     add_mount_page.dart        添加挂载弹窗（含代理与连接测试）
     settings_page.dart         数据/传输/安全/关于
   ui/kit.dart                  按钮、协议徽标、状态点、空状态、输入框装饰
+assets/
+  tray.ico / tray.png          Windows 托盘图标（256px 圆角 N，脚本生成，无需设计源文件）
 design/index.html              设计稿
 docs/s3-addressing-analysis.md S3 寻址模式与第三方兼容性分析（15 条坑）
 docs/PROJECT-STATUS.md         本文档
@@ -338,6 +343,22 @@ HTTP 类只接受 `206 Partial Content`：服务器返回 200 说明忽略了 Ra
     发 PROPFIND 时认证头会丢，服务器一律回 401 —— 表现为「别的客户端能登，本应用登不上」。
     所有自定义方法（PROPFIND / MKCOL / MOVE / HEAD）必须走 `_dio.request(url, options: Options(method: ...))`。
     **新增 WebDAV 方法时不要再用 `fetch(RequestOptions)`。**
+20. **`tray_manager 0.8` 的 0.5 兼容层会丢弃 `DoubleClicked`。**
+    `legacy.dart` 的 `_wireTrayEvents` 只把 `TrayIconClickedEvent` 重放成 down+up，
+    `TrayIconDoubleClickedEvent` 直接 `break`。所以「双击显示窗口」不能只靠
+    `onTrayIconMouseDown` 的时间差，还要 `trayManager.trayIcon?.addListener(...)`
+    直接监听底层事件兜底。两条路都保留，任一命中即可。
+21. **Windows 产物必须整包分发。** 新版 tray/window 走 `nativeapi`，依赖同目录的
+    `cnativeapi.dll`、`window_manager_plugin.dll`、`screen_retriever_windows_plugin.dll`。
+    只拷 `nimbo.exe` 会在启动或建托盘时崩。CI 的 portable zip 已经把它们都打进去了。
+22. **便携凭据是混淆不是加密。** `userdata/credentials.dat` 用固定密钥 XOR + base64，
+    目的是「整个目录拷到别的机器密码还在」，不防本机其他程序。同机上仍优先系统凭据库
+    （DPAPI），便携文件只是备份。不要把这条写成「加密存储」。
+23. **单实例用回环端口 47913。** 若该端口被其他程序占用，第二个 Nimbo 也会直接退出
+    （宁可少开一个实例，也不要出现两个写同一份 prefs 的进程）。换端口时同步改
+    `lib/platform/single_instance.dart` 里的常量。
+24. **返回键用 `canPop: false` 全接管。** 任何新增的全屏路由（如自己 push 的页面）都要
+    在 `PopScope` 之外单独处理返回，否则会一路回退到文件页而不是关闭该页面。
 
 ---
 
@@ -398,6 +419,12 @@ HTTP 类只接受 `206 Partial Content`：服务器返回 200 说明忽略了 Ra
 | 上传刷新 | 上传完成后看列表 | 新文件自动出现 |
 | 切挂载 | 传输中切换挂载 | 传输继续，列表切到新挂载 |
 | 断网 | 传输中断网 | 状态转「失败」并给出可读原因，不是崩溃 |
+| **FTP 匿名** | 添加 FTP 时勾选「匿名登录」 | 用户名/密码置灰；能列出匿名目录 |
+| **返回键** | 依次按返回：子目录 → 挂载根 → 全部挂载 → 提示 → 再按 | 前三次逐级回退，最后一次连按两次才退出 |
+| **传输记录** | 传一半 → 杀进程 → 重开 | 任务列表还在，状态是「已暂停」，点继续能从断点接着传 |
+| **托盘** | 左键单击 / 左键双击 / 右键 | 单击无反应；双击显示并聚焦窗口；右键出现「显示主窗口 / 退出」 |
+| **单实例** | 程序已开，再双击 exe | 不出现第二个进程；已有窗口被唤到前台 |
+| **便携** | 整个文件夹换到另一台机器 | 挂载配置与密码都还在（`userdata/` 随目录走） |
 
 > 上表是**建议的**回归用例。本轮仍只验证到「双端编译通过 + `flutter analyze` 零问题」，
 > 没有真机/真服务端跑过（本机不装 Flutter、也没有测试用的 FTP/S3/WebDAV 服务）。
