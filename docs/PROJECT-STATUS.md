@@ -153,6 +153,9 @@ downloadTo / uploadFile / mkdir / removeEntry / move / probe`，错误统一抛 
 
 - 桌面（≥900 px）：236 px 导航栏（挂载切换器 / 导航 / 挂载列表 / 当前挂载的代理状态 + 只读标记）
   + 文件区（面包屑、列表、详情栏）+ 底部传输条
+- **文件页根是「全部挂载」聚合视图**：`AppState.browseAll` 为真时渲染挂载卡片网格
+  （名称 / 协议 / 地址 / 只读 / 代理 / 当前标记），点卡片才 `open(mount)` 进目录树；
+  面包屑固定为「全部挂载 / 挂载名 / …」，第一段可随时退回。启动与删除挂载后都停在这里。
 - 移动：底部四 Tab；文件页头部按钮按宽度收敛（窄屏只留「上传 / 新建」）
 - 挂载页：卡片列表、移除确认、只读与代理状态展示
 - 添加挂载弹窗：协议选择、动态字段（S3 多出 Bucket/Region/路径风格）、**独立代理区（标注「仅对本挂载生效」）**、连接测试
@@ -406,6 +409,7 @@ HTTP 类只接受 `206 Partial Content`：服务器返回 200 说明忽略了 Ra
 | 2026-10-23 23:20 | `8e7203e` | ✅ | ✅ | ❌ | 补 Android 网络权限；android 失败于 runner 下载 NDK 损坏（`Error on ZipFile unknown archive`），非代码问题 |
 | 2026-10-23 23:25 | `a2270c1` | ✅ | ✅ | ✅ | 同上，重跑后三绿：release APK 已含 `INTERNET` + `usesCleartextTraffic` |
 | 2026-10-24 05:45 | `8e09e26` | ✅ | ✅ | ✅ | **WebDAV 401 修复**：PROPFIND/MKCOL/MOVE 改用 `_dio.request`，恢复 Authorization 头 |
+| 2026-10-24 06:02 | `b5f1851` | ✅ | ✅ | ✅ | 文件页根改为「全部挂载」聚合视图（`browseAll`），不再只渲染单个挂载 |
 
 - 最近一次成功：run `39970353975`（commit `0237274`），`analyze` 输出 `No issues found!`
 - 产物：`windows-x64-portable.zip` 12.53 MB（内含 `Nimbo.exe`）、`app-release.apk` 20.5 MB（arm64 release）
