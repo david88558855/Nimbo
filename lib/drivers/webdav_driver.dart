@@ -113,14 +113,18 @@ class WebDavDriver extends StorageDriver {
   @override
   Future<List<RemoteEntry>> list(String path) async {
     final url = _uri(path, dir: true);
-    final res = await _dio.fetch<dynamic>(RequestOptions(
-      path: url.toString(),
-      method: 'PROPFIND',
-      headers: {'Depth': '1', 'Content-Type': 'application/xml; charset=utf-8'},
+    // 必须用 _dio.request 而不是 _dio.fetch(RequestOptions)：后者不合并
+    // BaseOptions.headers，Authorization 会丢，服务器一律回 401。
+    final res = await _dio.request<dynamic>(
+      url.toString(),
       data: _propfindBody,
-      responseType: ResponseType.plain,
-      validateStatus: (s) => s != null && s < 500,
-    ));
+      options: Options(
+        method: 'PROPFIND',
+        headers: {'Depth': '1', 'Content-Type': 'application/xml; charset=utf-8'},
+        responseType: ResponseType.plain,
+        validateStatus: (s) => s != null && s < 500,
+      ),
+    );
     _check(res, '列目录');
 
     final raw = res.data;
@@ -178,14 +182,16 @@ class WebDavDriver extends StorageDriver {
   Future<SpaceInfo?> space() async {
     try {
       final url = _uri('/', dir: true);
-      final res = await _dio.fetch<dynamic>(RequestOptions(
-        path: url.toString(),
-        method: 'PROPFIND',
-        headers: {'Depth': '0', 'Content-Type': 'application/xml; charset=utf-8'},
+      final res = await _dio.request<dynamic>(
+        url.toString(),
         data: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop>'
             '<d:quota-available-bytes/><d:quota-used-bytes/></d:prop></d:propfind>',
-        responseType: ResponseType.plain,
-      ));
+        options: Options(
+          method: 'PROPFIND',
+          headers: {'Depth': '0', 'Content-Type': 'application/xml; charset=utf-8'},
+          responseType: ResponseType.plain,
+        ),
+      );
       final text = res.data is String ? res.data as String : '';
       final doc = XmlDocument.parse(text);
       int? total;
@@ -261,11 +267,13 @@ class WebDavDriver extends StorageDriver {
 
   @override
   Future<void> mkdir(String path) async {
-    final res = await _dio.fetch<dynamic>(RequestOptions(
-      path: _uri(path, dir: true).toString(),
-      method: 'MKCOL',
-      validateStatus: (s) => s != null && s < 500,
-    ));
+    final res = await _dio.request<dynamic>(
+      _uri(path, dir: true).toString(),
+      options: Options(
+        method: 'MKCOL',
+        validateStatus: (s) => s != null && s < 500,
+      ),
+    );
     final code = res.statusCode ?? 0;
     if (code == 405) return; // 已存在
     _check(res, '新建目录');
@@ -282,12 +290,14 @@ class WebDavDriver extends StorageDriver {
 
   @override
   Future<void> move(String from, String to) async {
-    final res = await _dio.fetch<dynamic>(RequestOptions(
-      path: _uri(from).toString(),
-      method: 'MOVE',
-      headers: {'Destination': _uri(to).toString(), 'Overwrite': 'T'},
-      validateStatus: (s) => s != null && s < 500,
-    ));
+    final res = await _dio.request<dynamic>(
+      _uri(from).toString(),
+      options: Options(
+        method: 'MOVE',
+        headers: {'Destination': _uri(to).toString(), 'Overwrite': 'T'},
+        validateStatus: (s) => s != null && s < 500,
+      ),
+    );
     _check(res, '移动');
   }
 
