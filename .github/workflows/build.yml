@@ -1,0 +1,87 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: versions
+        run: flutter --version && dart --version
+      - name: pub get
+        run: flutter pub get
+      - name: analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+  android:
+    name: android-arm64
+    needs: analyze
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: pub get
+        run: flutter pub get
+      - name: scaffold android
+        run: |
+          flutter create --platforms=android --org com.nimbo --project-name nimbo "$RUNNER_TEMP/scaffold"
+          cp -r "$RUNNER_TEMP/scaffold/android" ./android
+          sed -i 's/android:label="nimbo"/android:label="Nimbo"/' android/app/src/main/AndroidManifest.xml
+      - name: build apk
+        run: flutter build apk --release --target-platform android-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-arm64
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+  windows:
+    name: windows-x64
+    needs: analyze
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: pub get
+        run: flutter pub get
+      - name: scaffold windows
+        shell: pwsh
+        run: |
+          flutter create --platforms=windows --org com.nimbo --project-name nimbo "$env:RUNNER_TEMP/scaffold"
+          Copy-Item -Recurse "$env:RUNNER_TEMP/scaffold/windows" ./windows
+      - name: build windows
+        run: flutter build windows --release
+      - name: package portable zip
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "dist/Nimbo-windows-x64-portable.zip" -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-portable
+          path: dist/Nimbo-windows-x64-portable.zip
+          if-no-files-found: error

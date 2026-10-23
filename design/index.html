@@ -1,0 +1,2513 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nimbo · 多协议网盘客户端 · 设计稿 v1.2</title>
+<style>
+/* ============ 0. 基础 ============ */
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;background:#F2F6FB;color:#0D1B2A;
+  font-family:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","PingFang SC",system-ui,-apple-system,sans-serif;
+  font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased;
+}
+:root{
+  --sky:#38BDF8;--sky6:#0EA5E9;--sky7:#0284C7;--teal:#2DD4BF;--teal6:#14B8A6;--violet:#7C5CFC;
+  --ok:#22C55E;--warn:#F59E0B;--danger:#F43F5E;--deep:#0E3A46;
+  --dbg:#F2F6FB;--dcard:#FFFFFF;--dline:#E3EBF3;--dink:#0D1B2A;--dink2:#41546A;--dink3:#7C8FA3;--dink4:#9AABBC;
+  --grad:linear-gradient(135deg,#38BDF8 0%,#20C6C8 100%);
+  --mono:"JetBrains Mono","SF Mono",ui-monospace,Consolas,"Courier New",monospace;
+}
+.flex{display:flex}
+.ico{width:16px;height:16px;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round;flex:none;display:block}
+.ico.f{fill:currentColor;stroke:none}
+.ico.s12{width:12px;height:12px;stroke-width:2}
+.ico.s14{width:14px;height:14px}
+.ico.s18{width:18px;height:18px}
+.ico.s20{width:20px;height:20px}
+.ico.s24{width:24px;height:24px;stroke-width:1.6}
+
+/* ============ 1. 文档外壳 ============ */
+.doc{display:flex;align-items:flex-start;min-height:100vh}
+.doc-rail{
+  width:252px;flex:none;position:sticky;top:0;height:100vh;padding:26px 16px 20px;
+  border-right:1px solid var(--dline);background:rgba(255,255,255,.74);backdrop-filter:blur(14px);
+  display:flex;flex-direction:column;gap:2px;z-index:20;
+}
+.logo{display:flex;align-items:center;gap:10px;padding:0 8px 20px}
+.logo-mark{
+  width:32px;height:32px;border-radius:10px;background:var(--grad);display:grid;place-items:center;
+  box-shadow:0 8px 18px -8px rgba(14,165,233,.85);color:#fff;
+}
+.logo b{font-size:14.5px;font-weight:800;letter-spacing:-.2px;display:block;line-height:1.25}
+.logo span{font-size:9.5px;font-weight:700;letter-spacing:1.4px;color:var(--dink3);text-transform:uppercase}
+.rail-cap{font-size:9.5px;font-weight:800;letter-spacing:1.6px;color:var(--dink4);padding:14px 10px 6px}
+.rail-i{
+  display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:9px;
+  color:var(--dink2);font-size:12.5px;font-weight:600;text-decoration:none;transition:.16s;
+}
+.rail-i em{font-style:normal;font-family:var(--mono);font-size:9.5px;color:var(--dink4);font-weight:600;width:14px}
+.rail-i:hover{background:#F3F8FC;color:var(--dink)}
+.rail-i.on{background:#E6F6FE;color:#075E7E}
+.rail-i.on em{color:var(--sky7)}
+.rail-foot{margin-top:auto;padding:12px 10px 0;border-top:1px solid var(--dline);font-size:10.5px;color:var(--dink3);line-height:1.7}
+.rail-foot b{color:var(--dink2);font-weight:700}
+
+.doc-main{flex:1;min-width:0;padding:0 44px 140px}
+.wrap{max-width:1160px;margin:0 auto}
+
+/* ============ 2. 文档排版 ============ */
+.cover{position:relative;margin:28px 0 0;border-radius:26px;overflow:hidden;background:#fff;border:1px solid var(--dline);
+  box-shadow:0 1px 2px rgba(13,27,42,.03),0 30px 60px -40px rgba(13,27,42,.3)}
+.cover::before{
+  content:"";position:absolute;inset:0;
+  background:
+    radial-gradient(560px 300px at 88% -10%,rgba(56,189,248,.30),transparent 70%),
+    radial-gradient(520px 320px at 100% 40%,rgba(45,212,191,.24),transparent 72%),
+    radial-gradient(420px 260px at 62% 120%,rgba(124,92,252,.10),transparent 70%);
+}
+.cover::after{
+  content:"";position:absolute;inset:0;opacity:.5;
+  background-image:linear-gradient(rgba(13,27,42,.032) 1px,transparent 1px),linear-gradient(90deg,rgba(13,27,42,.032) 1px,transparent 1px);
+  background-size:44px 44px;
+  -webkit-mask-image:radial-gradient(70% 70% at 80% 10%,#000,transparent 75%);
+}
+.cover-in{position:relative;padding:44px 46px 38px}
+.eyebrow{display:flex;align-items:center;gap:9px;font-size:9.5px;font-weight:800;letter-spacing:2px;color:var(--sky7);text-transform:uppercase}
+.eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--sky6);box-shadow:0 0 0 4px rgba(56,189,248,.18)}
+h1{font-size:46px;line-height:1.06;letter-spacing:-2.2px;font-weight:800;margin:18px 0 14px;max-width:16ch}
+.grad-text{background:linear-gradient(100deg,#0284C7 0%,#0EA5E9 38%,#14B8A6 92%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lead{font-size:14.5px;line-height:1.75;color:var(--dink2);max-width:62ch;margin:0}
+.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:26px}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:99px;border:1px solid var(--dline);
+  background:rgba(255,255,255,.8);font-size:10.5px;font-weight:700;color:var(--dink2)}
+.pill .sp{width:5px;height:5px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(34,197,94,.15)}
+
+.cover-art{position:absolute;right:46px;top:34px;width:306px;height:306px;pointer-events:none}
+.cover-art .ring{position:absolute;inset:18px;border-radius:50%;border:1px dashed rgba(14,165,233,.28)}
+.cover-art .ring2{position:absolute;inset:66px;border-radius:50%;border:1px solid rgba(45,212,191,.22)}
+.cover-art .core{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:76px;height:76px;border-radius:22px;
+  background:var(--grad);display:grid;place-items:center;color:#fff;box-shadow:0 22px 40px -18px rgba(14,165,233,.95),inset 0 1px 0 rgba(255,255,255,.5)}
+.cover-art .node{position:absolute;transform:translate(-50%,-50%);display:inline-flex;align-items:center;gap:5px;
+  background:rgba(255,255,255,.92);border:1px solid var(--dline);border-radius:99px;padding:4px 9px 4px 5px;
+  font-size:9.5px;font-weight:800;color:#41546A;box-shadow:0 8px 18px -12px rgba(13,27,42,.5);white-space:nowrap}
+.cover-art .node .pv{font-size:8.5px}
+@media(max-width:1180px){.cover-art{display:none}}
+.cover-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;margin-top:34px;background:var(--dline);border-radius:14px;overflow:hidden;border:1px solid var(--dline)}
+.cs{background:rgba(255,255,255,.92);padding:14px 16px}
+.cs b{display:block;font-size:22px;font-weight:800;letter-spacing:-.8px;line-height:1.1}
+.cs span{font-size:10px;font-weight:700;letter-spacing:.6px;color:var(--dink3)}
+
+.sec{padding-top:64px;scroll-margin-top:24px}
+.sec-h{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;border-bottom:1px solid var(--dline);padding-bottom:14px;margin-bottom:26px}
+.sec-h h2{font-size:29px;line-height:1.15;letter-spacing:-1.2px;font-weight:800;margin:6px 0 0}
+.sec-h h2 i{font-style:normal;color:var(--sky6)}
+.sec-h p{margin:0;font-size:12px;color:var(--dink3);max-width:34ch;text-align:right;line-height:1.6}
+h3{font-size:16px;font-weight:800;letter-spacing:-.3px;margin:34px 0 12px;display:flex;align-items:center;gap:9px}
+h3::before{content:"";width:3px;height:15px;border-radius:2px;background:var(--grad)}
+p.note{font-size:12.5px;color:var(--dink2);line-height:1.8;margin:0 0 14px;max-width:78ch}
+.card{background:#fff;border:1px solid var(--dline);border-radius:20px;padding:22px;box-shadow:0 1px 2px rgba(13,27,42,.03)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.mini-cap{font-size:9.5px;font-weight:800;letter-spacing:1.4px;color:var(--dink4);text-transform:uppercase;margin-bottom:10px}
+
+/* 原则卡 */
+.pr{position:relative;border-radius:18px;border:1px solid var(--dline);background:#fff;padding:20px;overflow:hidden}
+.pr::before{content:"";position:absolute;right:-30px;top:-30px;width:110px;height:110px;border-radius:50%;background:radial-gradient(circle,rgba(56,189,248,.16),transparent 68%)}
+.pr .n{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--sky6);letter-spacing:1px}
+.pr h4{font-size:14px;font-weight:800;letter-spacing:-.2px;margin:8px 0 6px}
+.pr p{font-size:11.5px;line-height:1.7;color:var(--dink2);margin:0}
+.pr .ic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:#E6F6FE;color:#075E7E;margin-bottom:12px}
+
+/* 信息架构 */
+.ia{display:grid;grid-template-columns:1.05fr 1.25fr 1fr;gap:14px}
+.ia-col{border:1px solid var(--dline);border-radius:16px;background:#fff;padding:16px}
+.ia-col>b{font-size:9.5px;font-weight:800;letter-spacing:1.4px;color:var(--dink4);display:block;margin-bottom:10px}
+.ia-node{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--dink);padding:5px 0}
+.ia-kid{margin-left:12px;padding-left:14px;border-left:1px solid var(--dline);display:flex;flex-direction:column}
+.ia-kid .ia-node{font-size:11.5px;color:var(--dink2);font-weight:500;padding:3.5px 0}
+.ia-kid .ia-node::before{content:"";width:5px;height:5px;border-radius:2px;background:#CBD9E6;margin-right:2px}
+.tag{font-size:9px;font-weight:800;letter-spacing:.4px;padding:2px 6px;border-radius:5px;background:#F1F6FB;color:var(--dink3);border:1px solid var(--dline)}
+
+/* 色卡 */
+.sw-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
+.sw{border-radius:12px;overflow:hidden;border:1px solid var(--dline);background:#fff}
+.sw .chip{height:64px;position:relative;display:block;width:100%;border:none;border-radius:0;padding:0}
+.sw .chip.line{box-shadow:inset 0 0 0 1px rgba(13,27,42,.06)}
+.sw .lb{padding:7px 9px 9px}
+.sw .lb b{display:block;font-size:10.5px;font-weight:700;line-height:1.3}
+.sw .lb span{font-family:var(--mono);font-size:9px;color:var(--dink3);letter-spacing:.2px}
+.sw-hero{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:12px;margin-bottom:14px}
+.grad-card{border-radius:14px;padding:16px;color:#fff;background:linear-gradient(120deg,#38BDF8,#20C6C8);position:relative;overflow:hidden}
+.grad-card::after{content:"";position:absolute;inset:0;background:radial-gradient(120px 120px at 85% 20%,rgba(255,255,255,.42),transparent 70%)}
+.grad-card b{font-size:13px;font-weight:800;display:block;position:relative}
+.grad-card span{font-family:var(--mono);font-size:9.5px;opacity:.92;position:relative}
+
+/* 表格 */
+table.spec{width:100%;border-collapse:collapse;font-size:11.5px}
+table.spec th{
+  text-align:left;font-size:9px;font-weight:800;letter-spacing:.9px;color:var(--dink4);text-transform:uppercase;
+  padding:9px 10px;background:#FBFDFF;border-bottom:1px solid var(--dline)
+}
+table.spec td{padding:9px 10px;border-bottom:1px solid #F4F7FA;color:var(--dink2);vertical-align:middle}
+table.spec tr:last-child td{border-bottom:none}
+table.spec td b{color:var(--dink);font-weight:700}
+table.spec code{font-family:var(--mono);font-size:10px;background:#F3F8FC;border:1px solid #E7EEF6;border-radius:4px;padding:1px 5px;color:#0B5C7A}
+.tbl-wrap{border:1px solid var(--dline);border-radius:16px;overflow:hidden;background:#fff}
+
+/* 标注热点 */
+.pin{position:absolute;width:19px;height:19px;border-radius:50%;background:#fff;border:1.5px solid var(--sky6);
+  color:var(--sky7);font-size:9.5px;font-weight:800;display:grid;place-items:center;cursor:default;
+  box-shadow:0 3px 10px rgba(14,165,233,.35);font-family:var(--mono);z-index:9}
+.pin .tip{
+  position:absolute;bottom:26px;left:50%;transform:translateX(-50%) translateY(4px);white-space:nowrap;
+  background:#0D1B2A;color:#fff;font-size:10.5px;font-weight:600;padding:5px 9px;border-radius:7px;opacity:0;
+  pointer-events:none;transition:.18s;box-shadow:0 8px 20px rgba(13,27,42,.28);font-family:inherit;letter-spacing:0;
+}
+.pin .tip::after{content:"";position:absolute;top:100%;left:50%;transform:translateX(-50%);border:4px solid transparent;border-top-color:#0D1B2A}
+.pin:hover .tip{opacity:1;transform:translateX(-50%) translateY(0)}
+.legend{display:grid;grid-template-columns:1fr 1fr;gap:8px 20px;margin-top:16px}
+.lg{display:flex;gap:9px;font-size:11.5px;color:var(--dink2);line-height:1.55}
+.lg b{flex:none;width:17px;height:17px;border-radius:50%;background:#E6F6FE;color:var(--sky7);font-size:9px;font-weight:800;
+  display:grid;place-items:center;font-family:var(--mono);margin-top:1px}
+.lg span b{display:inline;background:none;width:auto;height:auto;color:var(--dink);font-size:inherit;font-family:inherit}
+
+/* 画板容器 */
+.fitbox{width:100%;position:relative;overflow:hidden}
+.fit{transform-origin:top left;display:inline-block}
+.stage{background:#fff;border:1px solid var(--dline);border-radius:18px;padding:18px;display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+
+/* ============ 3. 画板主题变量 ============ */
+.board{
+  --bg:#EDF2F8;--card:#FFFFFF;--surface:#F8FAFD;--surface-alt:#FCFDFF;
+  --line:#E3EBF3;--line2:#EEF3F8;--hair:#F0F4F9;
+  --ink:#0D1B2A;--ink2:#41546A;--ink3:#7C8FA3;--ink4:#9AABBC;
+  --nav:#50647A;--nav-icon:#8195A9;--nav-on-bg:#E6F6FE;--nav-on:#075E7E;--nav-badge:#EDF3F9;
+  --row-hover:#FAFDFF;--row-sel:#F3FAFF;
+  --field-bg:#FCFDFF;--field-border:#DFE9F3;
+  --chip-bg:#F3F8FC;--chip-border:#E7EEF6;
+  --thead:#FCFDFE;--shadow-card:0 1px 2px rgba(13,27,42,.04);
+  width:1360px;height:860px;background:var(--bg);color:var(--ink);position:relative;overflow:hidden;
+  display:flex;flex-direction:column;border-radius:16px;font-size:13px;
+  font-family:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;
+  box-shadow:0 1px 2px rgba(13,27,42,.06),0 40px 90px -50px rgba(13,27,42,.45);
+}
+.board[data-theme="dark"]{
+  --bg:#0B1622;--card:#0F1D2C;--surface:#091320;--surface-alt:#0A1624;
+  --line:#182838;--line2:#1A2A3C;--hair:#142435;
+  --ink:#D7E4EF;--ink2:#A9BDCE;--ink3:#7890A6;--ink4:#5E7488;
+  --nav:#93A9BD;--nav-icon:#6B8298;--nav-on-bg:rgba(56,189,248,.15);--nav-on:#7DD3FC;--nav-badge:#14243A;
+  --row-hover:#102132;--row-sel:#11283A;
+  --field-bg:#101F31;--field-border:#1C2E43;
+  --chip-bg:#101F31;--chip-border:#1C2E43;
+  --thead:#0F1D2C;--shadow-card:0 0 0 1px rgba(255,255,255,.02);
+  box-shadow:0 1px 2px rgba(0,0,0,.5),0 40px 90px -50px rgba(0,0,0,.9);
+}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.num{font-variant-numeric:tabular-nums}
+
+/* ============ 4. Windows 画板 ============ */
+.w-bar{height:44px;flex:none;display:flex;align-items:center;gap:14px;padding-left:14px;background:var(--card);border-bottom:1px solid var(--line);position:relative;z-index:5}
+.w-logo{display:flex;align-items:center;gap:9px}
+.w-mark{width:26px;height:26px;border-radius:8px;background:var(--grad);display:grid;place-items:center;color:#fff;box-shadow:0 5px 12px -5px rgba(14,165,233,.85)}
+.w-logo b{font-size:12.5px;font-weight:800;letter-spacing:.2px}
+.w-logo span{font-size:9px;font-weight:700;letter-spacing:.8px;color:var(--ink4);border-left:1px solid var(--line);padding-left:8px;margin-left:2px}
+.w-search{
+  flex:1;max-width:400px;height:30px;margin-left:14px;display:flex;align-items:center;gap:8px;
+  padding:0 7px 0 10px;border:1px solid var(--field-border);border-radius:9px;background:var(--field-bg);
+  color:var(--ink3);font-size:11.5px;font-weight:500;
+}
+.w-search .kbd{margin-left:auto;display:flex;gap:3px}
+kbd{
+  font-family:inherit;font-size:9px;font-weight:700;line-height:1;padding:3px 4px;border-radius:4px;
+  background:var(--chip-bg);border:1px solid var(--chip-border);color:var(--ink3);
+}
+.w-right{margin-left:auto;display:flex;align-items:center;gap:4px}
+.w-mini{display:flex;align-items:center;gap:7px;height:26px;padding:0 9px;border-radius:99px;background:var(--chip-bg);border:1px solid var(--chip-border);font-size:10.5px;font-weight:700;color:var(--ink2);margin-right:6px}
+.w-mini .bar{width:44px;height:4px;border-radius:99px;background:var(--line2);overflow:hidden}
+.w-mini .bar i{display:block;height:100%;width:62%;background:var(--grad);border-radius:99px}
+.w-ctl{display:flex;margin-left:4px}
+.w-ctl span{width:44px;height:44px;display:grid;place-items:center;color:var(--ink3)}
+.w-ctl span:hover{background:var(--row-hover)}
+.w-ctl span.x:hover{background:#E5484D;color:#fff}
+
+.w-body{flex:1;display:flex;min-height:0}
+.rail{width:236px;flex:none;background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:10px 9px 0}
+.mount-sw{
+  display:flex;align-items:center;gap:9px;padding:9px;border-radius:12px;background:var(--card);
+  border:1px solid var(--line);box-shadow:var(--shadow-card);margin-bottom:10px;
+}
+.mount-sw .av{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#0A93C4,#0EA5E9);color:#fff;display:grid;place-items:center;font-size:9.5px;font-weight:800;letter-spacing:.3px}
+.mount-sw .t{min-width:0;flex:1}
+.mount-sw .t b{display:block;font-size:11.5px;font-weight:800;letter-spacing:-.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mount-sw .t span{display:flex;align-items:center;gap:4px;font-size:9.5px;font-weight:600;color:var(--ink3)}
+.dot{width:5px;height:5px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(34,197,94,.16);flex:none}
+.dot.off{background:var(--ink4);box-shadow:none}
+.dot.warn{background:var(--warn);box-shadow:0 0 0 3px rgba(245,158,11,.18)}
+.nav-i{height:34px;border-radius:9px;display:flex;align-items:center;gap:9px;padding:0 9px;color:var(--nav);font-size:12px;font-weight:600;position:relative}
+.nav-i.on{background:var(--nav-on-bg);color:var(--nav-on);font-weight:700}
+.nav-i .cnt{margin-left:auto;font-size:9px;font-weight:800;padding:1px 5px;border-radius:99px;background:var(--nav-badge);color:var(--ink3);font-variant-numeric:tabular-nums}
+.nav-i.on .cnt{background:#fff;color:var(--sky7)}
+.rail-cap{font-size:9px;font-weight:800;letter-spacing:1.4px;color:var(--ink4);padding:16px 9px 7px;display:flex;align-items:center}
+.rail-cap span{margin-left:auto;color:var(--sky6);font-size:11px}
+.mnt{display:flex;flex-direction:column;gap:2px;padding:5px 9px;border-radius:9px}
+.mnt:hover{background:var(--row-hover)}
+.mnt .r1{display:flex;align-items:center;gap:6px}
+.mnt .r1 b{font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.mnt .r2{display:flex;align-items:center;gap:6px;margin-top:2px;padding-left:14px}
+.mnt .r2 .track{flex:1;height:3px;border-radius:99px;background:var(--line2);overflow:hidden}
+.mnt .r2 .track i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#38BDF8,#2DD4BF)}
+.mnt .r2 span{font-size:8.5px;font-weight:700;color:var(--ink3);font-variant-numeric:tabular-nums}
+.pv{font-size:8.5px;font-weight:800;letter-spacing:.4px;padding:1.5px 5px;border-radius:4px;font-family:var(--mono)}
+.pv.ftp{color:#A9700A;background:rgba(217,138,6,.13)}
+.pv.sftp{color:#137A4B;background:rgba(34,197,94,.13)}
+.pv.s3{color:#5B41D6;background:rgba(124,92,252,.14)}
+.pv.loc{color:#4A6076;background:rgba(99,120,142,.16)}
+.pv.dav{color:#0A8068;background:rgba(13,169,143,.13)}
+.board[data-theme="dark"] .pv{filter:brightness(1.5) saturate(1.15)}
+.rail-foot{margin-top:auto;padding:10px 4px 12px}
+.storage-card{border:1px solid var(--line);border-radius:12px;padding:10px 11px;background:var(--card);box-shadow:var(--shadow-card)}
+.storage-card .hd{display:flex;align-items:center;gap:6px;font-size:9.5px;font-weight:800;letter-spacing:.5px;color:var(--ink3)}
+.storage-card .big{margin:6px 0 7px;display:flex;align-items:baseline;gap:4px}
+.storage-card .big b{font-size:17px;font-weight:800;letter-spacing:-.6px;font-variant-numeric:tabular-nums}
+.storage-card .big span{font-size:9px;font-weight:600;color:var(--ink3)}
+.storage-card .track{height:5px;border-radius:99px;background:var(--line2);display:flex;gap:2px;overflow:hidden}
+.storage-card .track i{display:block;height:100%;border-radius:99px}
+
+.wmain{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg);position:relative}
+.phead{padding:16px 18px 10px;flex:none}
+.crumbs{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--ink3);font-weight:600;height:20px}
+.crumbs .c{display:flex;align-items:center;gap:4px;padding:2px 5px;border-radius:6px}
+.crumbs .c:hover{background:var(--chip-bg);color:var(--ink2)}
+.crumbs .cur{color:var(--ink2);background:var(--chip-bg)}
+.crumbs .sep{color:var(--ink4);font-size:9px}
+.ph-row{display:flex;align-items:flex-end;gap:14px;margin-top:6px}
+.d-title{font-size:30px;line-height:1.08;letter-spacing:-1.3px;font-weight:800;margin:0}
+.ph-sub{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--ink3);font-weight:600;margin-bottom:5px}
+.ph-act{margin-left:auto;display:flex;align-items:center;gap:7px;padding-bottom:2px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:30px;padding:0 11px;border-radius:8px;font-size:11.5px;font-weight:700;border:1px solid transparent;white-space:nowrap;letter-spacing:-.1px}
+.btn.pri{background:var(--grad);color:#fff;box-shadow:0 7px 16px -8px rgba(14,165,233,.9)}
+.btn.sec{background:var(--card);border-color:var(--field-border);color:var(--ink);box-shadow:var(--shadow-card)}
+.btn.gho{background:transparent;color:var(--ink2)}
+.btn.gho:hover{background:var(--chip-bg)}
+.btn.dgr{background:#FFF1F3;color:#B3203B;border-color:#F8C9D2}
+.board[data-theme="dark"] .btn.dgr{background:rgba(244,63,94,.14);border-color:rgba(244,63,94,.3);color:#FDA4B6}
+.ibtn{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:var(--ink3);border:1px solid transparent}
+.ibtn:hover{background:var(--chip-bg);color:var(--ink2)}
+.ibtn.bd{border-color:var(--field-border);background:var(--card)}
+.seg{display:flex;padding:2px;border-radius:8px;background:var(--chip-bg);border:1px solid var(--chip-border)}
+.seg span{height:24px;padding:0 9px;border-radius:6px;display:grid;place-items:center;font-size:10.5px;font-weight:700;color:var(--ink3)}
+.seg span.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(13,27,42,.12)}
+.toolbar{display:flex;align-items:center;gap:7px;padding:2px 18px 10px;flex:none}
+.chip{height:26px;padding:0 9px;border-radius:99px;display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:700;color:var(--ink2);background:var(--chip-bg);border:1px solid var(--chip-border)}
+.chip.on{background:#0D1B2A;border-color:#0D1B2A;color:#fff}
+.board[data-theme="dark"] .chip.on{background:#38BDF8;border-color:#38BDF8;color:#062432}
+.chip .n{font-size:9px;opacity:.65;font-variant-numeric:tabular-nums}
+.tb-sep{width:1px;height:16px;background:var(--line);margin:0 3px}
+
+.tbl{background:var(--card);border:1px solid var(--line);border-radius:14px;margin:0 18px;overflow:hidden;display:flex;flex-direction:column;flex:1;min-height:0;box-shadow:var(--shadow-card)}
+.tbl-h,.tr{display:grid;grid-template-columns:30px 1fr 92px 128px 74px 30px;align-items:center;column-gap:8px;padding:0 12px}
+.tbl-h{height:32px;background:var(--thead);border-bottom:1px solid var(--line);font-size:9px;font-weight:800;letter-spacing:1px;color:var(--ink4);text-transform:uppercase}
+.tbl-h .s{display:flex;align-items:center;gap:3px}
+.tr{height:44px;border-bottom:1px solid var(--hair);font-size:12px;position:relative}
+.tr:last-child{border-bottom:none}
+.tr.hov{background:var(--row-hover)}
+.tr.sel{background:var(--row-sel)}
+.tr.sel::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:3px;border-radius:0 3px 3px 0;background:var(--sky6)}
+.cb{width:14px;height:14px;border-radius:4px;border:1.5px solid #CBD9E6;display:grid;place-items:center;color:transparent}
+.board[data-theme="dark"] .cb{border-color:#2A3E52}
+.cb.on{background:var(--sky6);border-color:var(--sky6);color:#fff}
+.tr .nm{display:flex;align-items:center;gap:9px;min-width:0}
+.tile{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;flex:none;color:#0A93C4;background:rgba(10,147,196,.11)}
+.tile.video{color:#7C5CFC;background:rgba(124,92,252,.11)}
+.tile.image{color:#E8476F;background:rgba(232,71,111,.11)}
+.tile.docf{color:#D98A06;background:rgba(217,138,6,.13)}
+.tile.audio{color:#0DA98F;background:rgba(13,169,143,.12)}
+.tile.zip{color:#63788E;background:rgba(99,120,142,.13)}
+.tile.code{color:#0EA5E9;background:rgba(14,165,233,.12)}
+.tile.lg{width:38px;height:38px;border-radius:11px}
+.tr .nm b{font-size:12px;font-weight:600;letter-spacing:-.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tr .nm b .ex{color:var(--ink4);font-weight:600}
+.tr .meta{font-size:9.5px;color:var(--ink4);font-weight:600;margin-top:1px;display:flex;align-items:center;gap:5px}
+.tr .sz,.tr .dt{font-size:11px;color:var(--ink2);font-weight:600;font-variant-numeric:tabular-nums}
+.tr .dt{color:var(--ink3)}
+.tr .tp{font-size:9.5px;font-weight:700;color:var(--ink3);background:var(--chip-bg);border:1px solid var(--chip-border);padding:1.5px 6px;border-radius:5px;justify-self:start}
+.tr .ra{display:flex;gap:2px;justify-content:flex-end;opacity:0}
+.tr.hov .ra{opacity:1}
+.tr .ra .ibtn{width:24px;height:24px}
+
+.insp{width:320px;flex:none;background:var(--surface-alt);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.insp-hd{height:38px;flex:none;display:flex;align-items:center;padding:0 14px;font-size:9px;font-weight:800;letter-spacing:1.4px;color:var(--ink4);text-transform:uppercase;border-bottom:1px solid var(--line)}
+.insp-hd .ibtn{margin-left:auto}
+.insp-b{padding:14px;overflow:hidden;flex:1}
+.preview{height:150px;border-radius:12px;border:1px solid var(--line);position:relative;overflow:hidden;
+  background:linear-gradient(145deg,#EAF6FF,#E6FBF6 60%,#F3F0FF)}
+.board[data-theme="dark"] .preview{background:linear-gradient(145deg,#0F2739,#0E2E33 60%,#1A1B3A)}
+.preview .pv-ic{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);color:#0A93C4;opacity:.9}
+.board[data-theme="dark"] .preview .pv-ic{color:#7DD3FC}
+.preview .pv-tag{position:absolute;left:10px;top:10px;font-size:8.5px;font-weight:800;letter-spacing:.6px;padding:2px 6px;border-radius:5px;background:rgba(255,255,255,.85);color:#0B5C7A}
+.board[data-theme="dark"] .preview .pv-tag{background:rgba(11,22,34,.72);color:#7DD3FC}
+.preview .pv-ft{position:absolute;left:0;right:0;bottom:0;padding:8px 10px;font-size:9px;font-weight:700;color:var(--ink3);background:linear-gradient(transparent,rgba(255,255,255,.85))}
+.board[data-theme="dark"] .preview .pv-ft{background:linear-gradient(transparent,rgba(11,22,34,.9))}
+.i-name{font-size:14px;font-weight:800;letter-spacing:-.3px;margin:13px 0 3px;line-height:1.35;word-break:break-all}
+.i-path{font-family:var(--mono);font-size:9px;color:var(--ink4);line-height:1.6;word-break:break-all}
+.i-meta{margin-top:12px;display:flex;flex-direction:column;gap:0}
+.i-meta .r{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--hair);font-size:10.5px}
+.i-meta .r:last-child{border-bottom:none}
+.i-meta .r span{color:var(--ink3);font-weight:600}
+.i-meta .r b{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:5px}
+.i-acts{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:14px}
+.i-acts .btn{height:32px;font-size:11px;justify-content:center}
+.i-tags{display:flex;gap:5px;margin-top:12px;flex-wrap:wrap}
+
+.drawer{height:94px;flex:none;background:var(--card);border-top:1px solid var(--line);display:flex;align-items:center;gap:10px;padding:0 14px;position:relative;z-index:4}
+.dw-cap{flex:none;display:flex;flex-direction:column;gap:3px;padding-right:12px;border-right:1px solid var(--line);height:56px;justify-content:center}
+.dw-cap b{font-size:10.5px;font-weight:800;letter-spacing:.2px;display:flex;align-items:center;gap:5px}
+.dw-cap span{font-size:9px;color:var(--ink3);font-weight:600;font-variant-numeric:tabular-nums}
+.tk{flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--surface);height:66px;display:flex;flex-direction:column;justify-content:center;gap:5px}
+.tk .r1{display:flex;align-items:center;gap:6px}
+.tk .r1 b{font-size:10.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.tk .r1 span{font-size:9px;font-weight:700;color:var(--ink3);font-variant-numeric:tabular-nums;flex:none}
+.tk .bar{height:4px;border-radius:99px;background:var(--line2);overflow:hidden}
+.tk .bar i{display:block;height:100%;border-radius:99px;background:var(--grad)}
+.tk.pause .bar i{background:linear-gradient(90deg,#F59E0B,#FBBF24)}
+.tk .r2{display:flex;align-items:center;gap:6px;font-size:8.5px;font-weight:600;color:var(--ink4);font-variant-numeric:tabular-nums}
+.tk .r2 .sp{margin-left:auto;display:flex;gap:1px}
+.tk .r2 .sp span{color:var(--ink3);font-size:11px}
+.dw-end{flex:none;display:flex;align-items:center;gap:8px;padding-left:10px}
+
+.statusbar{height:30px;flex:none;background:var(--surface);border-top:1px solid var(--line);display:flex;align-items:center;gap:14px;padding:0 14px;font-size:9.5px;font-weight:600;color:var(--ink3);font-variant-numeric:tabular-nums}
+.statusbar .it{display:flex;align-items:center;gap:5px}
+.statusbar .it b{color:var(--ink2);font-weight:700}
+.statusbar .right{margin-left:auto;display:flex;gap:14px;color:var(--ink4)}
+
+/* 手机画板 */
+.pf{width:414px;height:868px;border-radius:58px;padding:9px;background:linear-gradient(160deg,#F4F8FD,#DCE8F4);
+  box-shadow:0 30px 60px -34px rgba(13,27,42,.5),0 2px 6px rgba(13,27,42,.06);position:relative}
+.pf[data-theme="dark"]{background:linear-gradient(160deg,#2B3A4A,#131E29)}
+.board.ph{width:396px;height:850px;border-radius:49px;box-shadow:none;overflow:hidden}
+.p-status{height:42px;flex:none;display:flex;align-items:center;padding:0 22px;font-size:11px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+.p-status .r{margin-left:auto;display:flex;align-items:center;gap:5px;color:var(--ink2)}
+.p-status .bat{width:17px;height:9px;border-radius:2.5px;border:1.2px solid currentColor;opacity:.7;position:relative}
+.p-status .bat::before{content:"";position:absolute;inset:1.6px;right:5px;background:currentColor;border-radius:1px}
+.p-bar{flex:none;display:flex;align-items:center;gap:10px;padding:4px 18px 10px}
+.p-sw{display:flex;align-items:center;gap:7px;height:34px;padding:0 10px 0 8px;border-radius:99px;background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow-card);max-width:230px}
+.p-sw .av{width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,#0A93C4,#0EA5E9);color:#fff;font-size:8px;font-weight:800;display:grid;place-items:center}
+.p-sw b{font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p-sw .cs{font-size:9px;font-weight:700;color:var(--ink3);display:flex;align-items:center;gap:3px}
+.p-icons{margin-left:auto;display:flex;gap:2px}
+.p-icons .ibtn{width:34px;height:34px;border-radius:10px}
+.p-crumbs{display:flex;align-items:center;gap:5px;padding:0 18px 10px;font-size:11px;font-weight:600;color:var(--ink3);overflow:hidden}
+.p-crumbs .c{padding:3px 8px;border-radius:7px;background:var(--chip-bg);border:1px solid var(--chip-border);white-space:nowrap}
+.p-crumbs .cur{color:var(--ink2);background:var(--card);border-color:var(--line)}
+.p-head{padding:0 18px 10px;display:flex;align-items:flex-end;gap:10px}
+.p-head h4{font-size:22px;font-weight:800;letter-spacing:-.9px;line-height:1.15;margin:0}
+.p-head .sub{font-size:10.5px;color:var(--ink3);font-weight:600;margin-top:3px}
+.p-head .acts{margin-left:auto;display:flex;gap:4px;padding-bottom:2px}
+.p-filters{display:flex;gap:6px;padding:0 18px 10px;overflow:hidden}
+.p-filters .chip{height:28px;font-size:10px}
+.p-list{flex:1;min-height:0;overflow:hidden;background:var(--card);border-top:1px solid var(--line)}
+.p-row{height:66px;display:flex;align-items:center;gap:11px;padding:0 18px;border-bottom:1px solid var(--hair);position:relative}
+.p-row .tile{width:38px;height:38px;border-radius:11px}
+.p-row .tx{min-width:0;flex:1}
+.p-row .tx b{display:block;font-size:13px;font-weight:700;letter-spacing:-.15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p-row .tx span{display:flex;align-items:center;gap:5px;font-size:10px;font-weight:600;color:var(--ink3);margin-top:2px;font-variant-numeric:tabular-nums}
+.p-row .tr-a{color:var(--ink4);display:flex;align-items:center;gap:2px}
+.p-row.sel{background:var(--row-sel)}
+.p-fab{position:absolute;right:18px;bottom:96px;height:50px;padding:0 18px 0 14px;border-radius:99px;background:var(--grad);color:#fff;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;box-shadow:0 14px 26px -12px rgba(14,165,233,.95);z-index:3}
+.p-nav{height:64px;flex:none;background:var(--card);border-top:1px solid var(--line);display:flex;align-items:center;padding:0 6px 0}
+.p-nav .n{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9.5px;font-weight:700;color:var(--ink4);position:relative}
+.p-nav .n.on{color:var(--sky7)}
+.board[data-theme="dark"] .p-nav .n.on{color:#7DD3FC}
+.p-nav .n .badge{position:absolute;top:-2px;right:50%;margin-right:-16px;min-width:14px;height:14px;border-radius:99px;background:var(--sky6);color:#fff;font-size:8px;font-weight:800;display:grid;place-items:center;padding:0 3px;border:2px solid var(--card)}
+.p-nav .n.on::after{content:"";position:absolute;bottom:-9px;width:16px;height:3px;border-radius:99px;background:var(--sky6)}
+.p-home{height:20px;flex:none;display:grid;place-items:center;background:var(--card)}
+.p-home i{width:110px;height:4px;border-radius:99px;background:var(--ink4);opacity:.45}
+
+/* 传输行 */
+.x-row{display:grid;grid-template-columns:30px 1fr 118px 92px 96px 78px;align-items:center;gap:10px;height:62px;padding:0 14px;border-bottom:1px solid var(--hair);font-size:11.5px}
+.x-row.hd{height:32px;background:var(--thead);font-size:9px;font-weight:800;letter-spacing:1px;color:var(--ink4);text-transform:uppercase;border-bottom:1px solid var(--line)}
+.x-row .bar{height:5px;border-radius:99px;background:var(--line2);overflow:hidden;margin-top:5px}
+.x-row .bar i{display:block;height:100%;border-radius:99px;background:var(--grad)}
+.x-row .nm{min-width:0}
+.x-row .nm b{display:block;font-size:11.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.x-row .nm span{font-size:9px;color:var(--ink3);font-weight:600}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:800;letter-spacing:.3px;padding:2px 7px;border-radius:5px;border:1px solid transparent}
+.badge.ok{color:#137A4B;background:rgba(34,197,94,.11);border-color:rgba(34,197,94,.2)}
+.badge.wn{color:#A9700A;background:rgba(217,138,6,.11);border-color:rgba(217,138,6,.2)}
+.badge.dg{color:#B3203B;background:rgba(244,63,94,.09);border-color:rgba(244,63,94,.18)}
+.badge.bl{color:#0A6E93;background:rgba(10,147,196,.1);border-color:rgba(10,147,196,.18)}
+.badge.vi{color:#5B41D6;background:rgba(124,92,252,.1);border-color:rgba(124,92,252,.18)}
+
+/* 挂载卡 */
+.mt-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:9px;box-shadow:var(--shadow-card);position:relative;overflow:hidden}
+.mt-card .hd{display:flex;align-items:center;gap:8px}
+.mt-card .hd b{font-size:12.5px;font-weight:800;letter-spacing:-.2px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mt-card .addr{font-family:var(--mono);font-size:9.5px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mt-card .cap{margin-top:auto;display:flex;flex-direction:column;gap:5px}
+.mt-card .cap .l{display:flex;align-items:baseline;justify-content:space-between;font-size:9.5px;font-weight:700;color:var(--ink3);font-variant-numeric:tabular-nums}
+.mt-card .cap .l b{font-size:11px;color:var(--ink);font-weight:800}
+.mt-card .cap .t{height:5px;border-radius:99px;background:var(--line2);overflow:hidden;display:flex;gap:2px}
+.mt-card .cap .t i{height:100%;border-radius:99px;display:block}
+.mt-card .ft{display:flex;align-items:center;gap:8px;font-size:9px;color:var(--ink4);font-weight:600;border-top:1px solid var(--hair);padding-top:8px;margin-top:2px}
+.mt-add{border:1.5px dashed var(--field-border);border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--ink3);background:transparent;min-height:150px}
+.mt-add span{font-size:11.5px;font-weight:700}
+
+/* 弹窗 */
+.scrim{position:absolute;inset:0;background:rgba(11,22,34,.34);backdrop-filter:blur(3px);display:grid;place-items:center;z-index:20}
+.modal{width:760px;background:var(--card);border-radius:16px;box-shadow:0 40px 90px -30px rgba(6,20,32,.6);overflow:hidden;display:flex;flex-direction:column;border:1px solid var(--line)}
+.m-hd{padding:16px 20px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+.m-hd b{font-size:15.5px;font-weight:800;letter-spacing:-.4px}
+.m-steps{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:9.5px;font-weight:700;color:var(--ink4)}
+.m-steps .st{display:flex;align-items:center;gap:5px}
+.m-steps .st i{width:15px;height:15px;border-radius:50%;display:grid;place-items:center;font-size:8px;font-style:normal;background:var(--chip-bg);color:var(--ink3);border:1px solid var(--chip-border)}
+.m-steps .st.on i{background:var(--sky6);border-color:var(--sky6);color:#fff}
+.m-steps .st.on{color:var(--ink2)}
+.m-steps .st.done i{background:rgba(34,197,94,.15);border-color:rgba(34,197,94,.3);color:#137A4B}
+.m-steps em{width:14px;height:1px;background:var(--line);font-style:normal}
+.m-bd{padding:16px 20px 18px;display:flex;flex-direction:column;gap:14px}
+.proto-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.proto{border:1.5px solid var(--field-border);border-radius:11px;padding:10px 8px;display:flex;flex-direction:column;gap:6px;align-items:flex-start;background:var(--field-bg)}
+.proto.on{border-color:var(--sky6);background:rgba(56,189,248,.07);box-shadow:0 0 0 3px rgba(56,189,248,.12)}
+.proto .row{display:flex;align-items:center;gap:6px;width:100%}
+.proto b{font-size:11px;font-weight:800}
+.proto .ph2{font-size:8.5px;color:var(--ink4);font-weight:600}
+.proto span{font-size:8.5px;color:var(--ink3);font-weight:600;line-height:1.4}
+.proto .ck{margin-left:auto;color:var(--sky6)}
+.flds{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+.fld{display:flex;flex-direction:column;gap:4px}
+.fld label{font-size:9.5px;font-weight:800;letter-spacing:.4px;color:var(--ink3);display:flex;align-items:center;gap:4px}
+.fld .in{height:32px;border:1px solid var(--field-border);border-radius:8px;background:var(--field-bg);display:flex;align-items:center;padding:0 9px;font-size:11.5px;color:var(--ink);font-weight:600}
+.fld .in.ph{color:var(--ink3);font-weight:500}
+.fld .in .tail{margin-left:auto;font-size:9px;color:var(--ink4);font-weight:700}
+.fld .hint{font-size:8.5px;color:var(--ink4);font-weight:600}
+.m-foot{padding:12px 20px;border-top:1px solid var(--line);display:flex;align-items:center;gap:8px;background:var(--surface)}
+.m-foot .note{font-size:9.5px;color:var(--ink3);font-weight:600;display:flex;align-items:center;gap:5px;margin-right:auto}
+.tg{width:30px;height:17px;border-radius:99px;background:#D8E4F0;position:relative;flex:none}
+.board[data-theme="dark"] .tg{background:#22364A}
+.tg::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(13,27,42,.25)}
+.tg.on{background:var(--sky6)}
+.tg.on::after{left:15px}
+
+/* 交互细节面板 */
+.panel{width:300px;border:1px solid var(--line);border-radius:12px;background:var(--card);box-shadow:0 12px 30px -18px rgba(13,27,42,.4);overflow:hidden}
+.panel .ph{font-size:9px;font-weight:800;letter-spacing:1.2px;color:var(--ink4);padding:8px 10px;border-bottom:1px solid var(--hair);text-transform:uppercase}
+.menu-i{display:flex;align-items:center;gap:9px;height:28px;padding:0 10px;font-size:11px;font-weight:600;color:var(--ink2)}
+.menu-i.hv{background:var(--row-hover)}
+.menu-i .k{margin-left:auto;font-size:8.5px;color:var(--ink4);font-family:var(--mono)}
+.menu-i.dg{color:#B3203B}
+.menu-sep{height:1px;background:var(--hair);margin:4px 0}
+.drop{width:100%;height:150px;border:1.5px dashed var(--sky6);border-radius:12px;background:rgba(56,189,248,.07);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;color:#0B5C7A}
+.drop b{font-size:12.5px;font-weight:800}
+.drop span{font-size:9.5px;color:var(--ink3);font-weight:600}
+.cmdk{width:100%}
+.cmdk .inp{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-bottom:1px solid var(--hair);color:var(--ink3);font-size:11.5px}
+.cmdk .grp{font-size:8.5px;font-weight:800;letter-spacing:1px;color:var(--ink4);padding:7px 10px 3px}
+.cmdk .ri{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;font-size:11px;font-weight:600;color:var(--ink2)}
+.cmdk .ri.hv{background:var(--row-sel);color:var(--ink)}
+.cmdk .ri .k{margin-left:auto;font-size:8.5px;color:var(--ink4);font-family:var(--mono)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12m0 0 5-5m-5 5-5-5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.2l2 2.5h7.8A2.5 2.5 0 0 1 21 10v7.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="m10 9.4 5 2.6-5 2.6z"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m4 17 5-5 4 4 3-3 4 4"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M9 13h6M9 17h4"/></symbol>
+  <symbol id="i-audio" viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m9 8-4 4 4 4m6-8 4 4-4 4"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></symbol>
+  <symbol id="i-morev" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/></symbol>
+  <symbol id="i-chevr" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-chevd" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-chevl" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 13 4 4 10-10"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 24 24"><path d="M7 4v16m0 0-3-3m3 3 3-3"/><path d="M14 7h6M14 13h4M14 19h2"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.7 5.7 6.3.8-4.6 4.3 1.2 6.2-5.6-3-5.6 3 1.2-6.2L3 9.5l6.3-.8z"/></symbol>
+  <symbol id="i-transfer" viewBox="0 0 24 24"><path d="M4 8h13m0 0-3-3m3 3-3 3"/><path d="M20 16H7m0 0 3-3m-3 3 3 3"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h6M14 17h6"/><circle cx="16" cy="7" r="2"/><circle cx="12" cy="17" r="2"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4.5" y="10" width="15" height="10.5" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6.5 7l1 13h9l1-13"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16z"/></symbol>
+  <symbol id="i-move" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><path d="m8 7 4-4 4 4M8 17l4 4 4-4M7 8 3 12l4 4M17 8l4 4-4 4"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M15 6.5V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1.5"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10.5 13.5a4.5 4.5 0 0 0 6.4 0l2-2a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M13.5 10.5a4.5 4.5 0 0 0-6.4 0l-2 2a4.5 4.5 0 0 0 6.4 6.4l1-1"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M4.5 11.5a11 11 0 0 1 15 0"/><path d="M8 15a6 6 0 0 1 8 0"/><circle cx="12" cy="18.6" r="1.1"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="3.6"/><path d="m10.7 12.4 8.3-8.3M17 6l2.2 2.2M14.8 8.2 17 10.4"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.6"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4.4l3 1.8"/></symbol>
+  <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 6h16l-6.2 7.2V20l-3.6-1.8v-5z"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="m13 3-8 10.5h5.5L10 21l8-11h-5.5z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.8h.01"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="m20 4-9 9"/><path d="M19 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="m4 10 8-7 8 7v8.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18.5h10.2a4.3 4.3 0 0 0 .6-8.6A5.8 5.8 0 0 0 6.9 8.7 4.9 4.9 0 0 0 7 18.5z"/></symbol>
+  <symbol id="i-machine" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.6"/><path d="M11 19h2"/></symbol>
+  <symbol id="i-min" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-max" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1.5"/></symbol>
+</svg>
+
+<div class="doc">
+  <aside class="doc-rail">
+    <div class="logo">
+      <div class="logo-mark"><svg class="ico s18"><use href="#i-cloud"/></svg></div>
+      <div><b>Nimbo</b><span>Design Spec v1.2</span></div>
+    </div>
+    <div class="rail-cap">目录</div>
+    <a class="rail-i on" href="#s0"><em>00</em>概览与架构</a>
+    <a class="rail-i" href="#s1"><em>01</em>设计语言</a>
+    <a class="rail-i" href="#s2"><em>02</em>Windows x64</a>
+    <a class="rail-i" href="#s3"><em>03</em>Android arm64</a>
+    <a class="rail-i" href="#s4"><em>04</em>交互方案</a>
+    <a class="rail-i" href="#s5"><em>05</em>协议接入</a>
+    <a class="rail-i" href="#s6"><em>06</em>落地映射</a>
+    <div class="rail-foot">
+      <b>本次范围</b><br>仅设计稿：布局 / 层级 / 配色 / 交互。<br>不含 Flutter 代码，下一阶段交付可运行骨架。
+    </div>
+  </aside>
+
+  <main class="doc-main">
+    <div class="wrap">
+
+      <!-- ================= 00 概览 ================= -->
+      <header class="cover" id="s0">
+        <div class="cover-in">
+          <div class="eyebrow"><span class="dot"></span>设计稿 v1.2 · 单一浅色主题 · 代理按挂载独立</div>
+          <h1><span class="grad-text">Nimbo</span><br>多协议网盘客户端</h1>
+          <p class="lead">一个客户端，接入 FTP / SFTP / S3 / WebDAV 四类网络协议，外加本机与映射盘；每个挂载可单独指定 HTTP / SOCKS5 代理，互不影响。视觉沿用 OpenList-Client 的「浅蓝灰画布 + 天空青渐变 + 高密度紧字距」体系，在此之上重构为多协议挂载模型：<b>挂载是容器，文件是内容，传输是常驻状态</b>。</p>
+          <div class="meta-row">
+            <span class="pill"><span class="sp"></span>Flutter 3.x · Dart 原生网络栈</span>
+            <span class="pill">Windows 10/11 x64</span>
+            <span class="pill">Android 8.0+ arm64</span>
+            <span class="pill">Material 3 深度定制 · 无 WebView</span>
+            <span class="pill">SMB 场景：映射盘 / WebDAV / SFTP</span>
+            <span class="pill">代理：每挂载一对一</span>
+          </div>
+
+          <div class="cover-art">
+            <div class="ring"></div><div class="ring2"></div>
+            <div class="core"><svg class="ico s24" style="width:34px;height:34px"><use href="#i-cloud"/></svg></div>
+            <span class="node" style="left:50%;top:9%"><span class="pv sftp">SFTP</span>192.168.1.20</span>
+            <span class="node" style="left:88%;top:36%"><span class="pv s3">S3</span>oss-hz</span>
+            <span class="node" style="left:73%;top:78%"><span class="pv dav">DAV</span>team.cn</span>
+            <span class="node" style="left:27%;top:78%"><span class="pv loc">LOCAL</span>D:\Media</span>
+            <span class="node" style="left:12%;top:36%"><span class="pv ftp">FTP</span>10.0.0.8</span>
+          </div>
+          <div class="cover-stats">
+            <div class="cs"><b>5</b><span>类存储接入</span></div>
+            <div class="cs"><b>2</b><span>构建目标</span></div>
+            <div class="cs"><b>4</b><span>页面状态</span></div>
+            <div class="cs"><b>1</b><span>套组件库两端复用</span></div>
+          </div>
+        </div>
+      </header>
+
+      <section class="sec">
+        <div class="sec-h">
+          <div><div class="eyebrow">Design Principles</div><h2>四条设计原则</h2></div>
+          <p>所有取舍以此为准，评审时用它们判断对错，而不是凭喜好。</p>
+        </div>
+        <div class="grid4">
+          <div class="pr">
+            <div class="ic"><svg class="ico s18"><use href="#i-server"/></svg></div>
+            <div class="n">01</div>
+            <h4>挂载即上下文</h4>
+            <p>任何时刻界面都在回答「我在哪个存储的哪条路径」。挂载色标、协议徽标、地址栏三处同时锚定位置。</p>
+          </div>
+          <div class="pr">
+            <div class="ic"><svg class="ico s18"><use href="#i-copy"/></svg></div>
+            <div class="n">02</div>
+            <h4>全协议同构</h4>
+            <p>四类网络协议与本地盘共用一套行、详情、操作与状态。差异只出现在连接表单与能力差异提示里，不分裂为多套界面。</p>
+          </div>
+          <div class="pr">
+            <div class="ic"><svg class="ico s18"><use href="#i-transfer"/></svg></div>
+            <div class="n">03</div>
+            <h4>传输永远可见</h4>
+            <p>桌面常驻底部抽屉 + 标题栏微型进度，移动端底栏徽标。离开传输页不丢失进度感知。</p>
+          </div>
+          <div class="pr">
+            <div class="ic"><svg class="ico s18"><use href="#i-sliders"/></svg></div>
+            <div class="n">04</div>
+            <h4>密度双档</h4>
+            <p>同一套栅格，桌面行高 44、移动 66。信息密度跟随输入方式（指针 / 手指），而非跟随设备。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec">
+        <div class="sec-h">
+          <div><div class="eyebrow">Information Architecture</div><h2>信息架构与层级</h2></div>
+          <p>三层深度封顶：挂载 → 目录 → 文件详情。</p>
+        </div>
+        <div class="ia">
+          <div class="ia-col">
+            <b>一级 · 全局</b>
+            <div class="ia-node"><svg class="ico s14"><use href="#i-server"/></svg>挂载切换器</div>
+            <div class="ia-kid">
+              <div class="ia-node">在线 / 最近使用</div>
+              <div class="ia-node">离线缓存可用</div>
+              <div class="ia-node">添加 / 编辑：协议参数 · 代理 · 只读</div>
+            </div>
+            <div class="ia-node" style="margin-top:8px"><svg class="ico s14"><use href="#i-search"/></svg>全局搜索 <span class="tag">Ctrl K</span></div>
+            <div class="ia-node" style="margin-top:8px"><svg class="ico s14"><use href="#i-transfer"/></svg>传输中心</div>
+            <div class="ia-node" style="margin-top:8px"><svg class="ico s14"><use href="#i-sliders"/></svg>设置</div>
+            <div class="ia-kid">
+              <div class="ia-node">传输 / 网络 / 缓存 / 快捷键</div>
+            </div>
+          </div>
+          <div class="ia-col">
+            <b>二级 · 文件域</b>
+            <div class="ia-node"><svg class="ico s14"><use href="#i-folder"/></svg>当前目录</div>
+            <div class="ia-kid">
+              <div class="ia-node">面包屑路径 <span class="tag">可点击回退</span></div>
+              <div class="ia-node">列表 / 网格切换 · 排序 · 类型筛选</div>
+              <div class="ia-node">多选与批量操作条</div>
+              <div class="ia-node">拖拽上传 / 右键菜单</div>
+            </div>
+            <div class="ia-node" style="margin-top:8px"><svg class="ico s14"><use href="#i-file"/></svg>文件详情面板</div>
+            <div class="ia-kid">
+              <div class="ia-node">元信息 · 权限 · 校验值</div>
+              <div class="ia-node">预览 / 下载 / 重命名 / 移动 复制 删除</div>
+            </div>
+          </div>
+          <div class="ia-col">
+            <b>贯穿 · 状态层</b>
+            <div class="ia-node"><svg class="ico s18"><use href="#i-bolt"/></svg>连接态</div>
+            <div class="ia-kid">
+              <div class="ia-node">已连接 / 重连中 / 离线（读缓存）</div>
+              <div class="ia-node">认证失效 / 权限不足 / 主机不可达</div>
+            </div>
+            <div class="ia-node" style="margin-top:8px"><svg class="ico s14"><use href="#i-clock"/></svg>数据态</div>
+            <div class="ia-kid">
+              <div class="ia-node">骨架屏（延迟 400ms 出现）</div>
+              <div class="ia-node">空目录 / 空搜索 / 空收藏</div>
+            </div>
+            <div class="ia-node" style="margin-top:8px"><svg class="ico s14"><use href="#i-transfer"/></svg>任务态</div>
+            <div class="ia-kid">
+              <div class="ia-node">排队 / 传输 / 校验 / 完成 / 失败</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 01 设计语言 ================= -->
+      <section class="sec" id="s1">
+        <div class="sec-h">
+          <div><div class="eyebrow">Design Language</div><h2>设计语言</h2></div>
+          <p>色彩、字阶、间距、圆角全部来自同一组 token，两端只是缩放不同。</p>
+        </div>
+
+        <h3>色彩：蓝色只出现在「可操作」与「已选中」</h3>
+        <p class="note">中性蓝灰承担 95% 面积；天空青渐变仅用于主行动、进度条与品牌标识，单屏不超过 3 处，避免渐变贬值。协议色只用于 icon 与徽标底色，绝不作为正文颜色——保证色弱用户仍能通过文字识别。</p>
+        <div class="sw-hero">
+          <div class="grad-card">
+            <b>Primary Gradient</b>
+            <span>linear 135° · #38BDF8 → #20C6C8</span>
+          </div>
+          <div class="sw" style="border:none">
+            <div class="chip" style="background:#0E3A46"></div>
+            <div class="lb"><b>Deep Ink</b><span>#0E3A46</span></div>
+          </div>
+          <div class="sw">
+            <div class="chip" style="background:#38BDF8"></div>
+            <div class="lb"><b>Sky 400</b><span>#38BDF8</span></div>
+          </div>
+        </div>
+        <div class="mini-cap">品牌与语义</div>
+        <div class="sw-grid" style="margin-bottom:16px">
+          <div class="sw"><div class="chip" style="background:#0EA5E9"></div><div class="lb"><b>Sky 600</b><span>#0EA5E9</span></div></div>
+          <div class="sw"><div class="chip" style="background:#0284C7"></div><div class="lb"><b>Sky 700</b><span>#0284C7</span></div></div>
+          <div class="sw"><div class="chip" style="background:#2DD4BF"></div><div class="lb"><b>Teal 400</b><span>#2DD4BF</span></div></div>
+          <div class="sw"><div class="chip" style="background:#7C5CFC"></div><div class="lb"><b>Violet</b><span>#7C5CFC</span></div></div>
+          <div class="sw"><div class="chip" style="background:#22C55E"></div><div class="lb"><b>Success</b><span>#22C55E</span></div></div>
+          <div class="sw"><div class="chip" style="background:#F59E0B"></div><div class="lb"><b>Warning</b><span>#F59E0B</span></div></div>
+          <div class="sw"><div class="chip" style="background:#F43F5E"></div><div class="lb"><b>Danger</b><span>#F43F5E</span></div></div>
+        </div>
+        <div class="mini-cap">中性 · 全应用唯一一套</div>
+        <div class="sw-grid" style="grid-template-columns:repeat(8,1fr)">
+          <div class="sw"><div class="chip line" style="background:#EDF2F8"></div><div class="lb"><b>Canvas</b><span>#EDF2F8</span></div></div>
+          <div class="sw"><div class="chip line" style="background:#FFFFFF"></div><div class="lb"><b>Card</b><span>#FFFFFF</span></div></div>
+          <div class="sw"><div class="chip line" style="background:#F8FAFD"></div><div class="lb"><b>Surface</b><span>#F8FAFD</span></div></div>
+          <div class="sw"><div class="chip line" style="background:#E3EBF3"></div><div class="lb"><b>Line</b><span>#E3EBF3</span></div></div>
+          <div class="sw"><div class="chip line" style="background:#0D1B2A"></div><div class="lb"><b>Ink</b><span>#0D1B2A</span></div></div>
+          <div class="sw"><div class="chip line" style="background:#41546A"></div><div class="lb"><b>Ink 2</b><span>#41546A</span></div></div>
+          <div class="sw"><div class="chip line" style="background:#7C8FA3"></div><div class="lb"><b>Ink 3</b><span>#7C8FA3</span></div></div>
+          <div class="sw"><div class="chip line" style="background:#9AABBC"></div><div class="lb"><b>Ink 4</b><span>#9AABBC</span></div></div>
+        </div>
+        <p class="note" style="margin:12px 0 0"><b>只做这一套浅色主题，不提供深色与「跟随系统」切换。</b>因此设计稿不再保留第二套调色板：一套 token 意味着对比度校验、截图回归、图标与插画资源只维护一份，深色模式的收益不足以抵消这部分长期成本。设置页也不再有「外观」分区。</p>
+
+        <div class="grid2" style="margin-top:16px">
+          <div class="card">
+            <div class="mini-cap">文件类型色 · 只用于图标砖</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">
+              <span class="badge bl"><svg class="ico s12"><use href="#i-folder"/></svg>文件夹 #0A93C4</span>
+              <span class="badge vi"><svg class="ico s12"><use href="#i-video"/></svg>视频 #7C5CFC</span>
+              <span class="badge dg"><svg class="ico s12"><use href="#i-image"/></svg>图片 #E8476F</span>
+              <span class="badge wn"><svg class="ico s12"><use href="#i-doc"/></svg>文档 #D98A06</span>
+              <span class="badge ok"><svg class="ico s12"><use href="#i-audio"/></svg>音频 #0DA98F</span>
+              <span class="badge" style="color:#63788E;background:rgba(99,120,142,.12)"><svg class="ico s12"><use href="#i-archive"/></svg>压缩 #63788E</span>
+            </div>
+            <div class="mini-cap" style="margin-top:16px">协议色 · 徽标始终与文字同现</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+              <span class="pv sftp">SFTP</span><span class="pv s3">S3</span><span class="pv dav">WebDAV</span>
+              <span class="pv ftp">FTP</span><span class="pv loc">LOCAL</span>
+            </div>
+            <p class="note" style="font-size:10.5px;margin:14px 0 0">图标砖 = 类型色 12% 底 + 100% 图标；不使用彩色整行，避免列表变成色块拼贴。</p>
+          </div>
+          <div class="card">
+            <div class="mini-cap">对比度校验（WCAG AA）</div>
+            <table class="spec">
+              <tr><td><b>正文 / 卡片</b></td><td class="mono">#0D1B2A on #FFFFFF</td><td><span class="badge ok">16.1 : 1</span></td></tr>
+              <tr><td><b>次级文字</b></td><td class="mono">#41546A on #FFFFFF</td><td><span class="badge ok">7.4 : 1</span></td></tr>
+              <tr><td><b>导航选中态</b></td><td class="mono">#075E7E on #E6F6FE</td><td><span class="badge ok">5.9 : 1</span></td></tr>
+              <tr><td><b>禁用 / 占位</b></td><td class="mono">#9AABBC on #FFFFFF</td><td><span class="badge wn">3.1 : 1</span></td></tr>
+            </table>
+            <p class="note" style="margin:10px 0 0;font-size:11px">正文与操作文字全部 ≥ 4.5:1；占位文字允许 3:1，但从不承载唯一信息。</p>
+          </div>
+        </div>
+
+        <h3>字体：紧字距 + 大字号反差</h3>
+        <p class="note">系统字体优先（Windows 走 Segoe UI Variable，Android 走思源/系统字体），不打包字体文件。字号沿用参考项目的可读性修正：桌面 ×1.12、移动 ×1.30，均以 clamp 实现，不覆盖系统无障碍字号。</p>
+        <div class="tbl-wrap">
+          <table class="spec">
+            <tr><th style="width:110px">层级</th><th style="width:96px">字号 / 行高</th><th style="width:80px">字重</th><th style="width:90px">字距</th><th>用途</th></tr>
+            <tr><td><b>DISPLAY</b></td><td class="mono">32 / 1.10</td><td>800</td><td class="mono">-1.2px</td><td>页面大标题「影视」「传输」</td></tr>
+            <tr><td><b>TITLE</b></td><td class="mono">20 / 1.20</td><td>800</td><td class="mono">-0.5px</td><td>卡片标题、弹窗标题</td></tr>
+            <tr><td><b>SECTION</b></td><td class="mono">13.5 / 1.4</td><td>800</td><td class="mono">-0.15px</td><td>分区标题、导航</td></tr>
+            <tr><td><b>BODY</b></td><td class="mono">13 / 1.35</td><td>500</td><td class="mono">0</td><td>文件名、正文、表单值</td></tr>
+            <tr><td><b>CAPTION</b></td><td class="mono">10 / 1.40</td><td>600</td><td class="mono">+0.02em</td><td>大小、时间、次级说明</td></tr>
+            <tr><td><b>MICRO</b></td><td class="mono">9 / 1.40</td><td>800</td><td class="mono">+0.14em</td><td>表头、徽标、分区标签（全大写）</td></tr>
+            <tr><td><b>MONO</b></td><td class="mono">10.5 / 1.5</td><td>500</td><td class="mono">+0.2px</td><td>主机地址、路径、SHA256</td></tr>
+          </table>
+        </div>
+        <p class="note" style="margin-top:10px">所有数字使用 <span class="mono">tabular-nums</span>：进度、速度、大小在刷新时不跳动。</p>
+
+        <h3>空间、圆角与阴影</h3>
+        <div class="grid3">
+          <div class="card">
+            <div class="mini-cap">4pt 栅格</div>
+            <div style="display:flex;align-items:flex-end;gap:6px;height:56px">
+              <span style="width:4px;height:4px;background:#38BDF8;border-radius:2px"></span>
+              <span style="width:8px;height:8px;background:#38BDF8;border-radius:2px"></span>
+              <span style="width:12px;height:12px;background:#38BDF8;border-radius:3px"></span>
+              <span style="width:16px;height:16px;background:#20C6C8;border-radius:4px"></span>
+              <span style="width:24px;height:24px;background:#20C6C8;border-radius:5px"></span>
+              <span style="width:32px;height:32px;background:#14B8A6;border-radius:6px"></span>
+            </div>
+            <p class="note" style="font-size:11px;margin:10px 0 0">4 / 8 / 12 / 16 / 24 / 32。行高：桌面 44、移动 66；触控目标 ≥ 44。</p>
+          </div>
+          <div class="card">
+            <div class="mini-cap">圆角</div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <div style="width:52px;height:52px;border-radius:20px;background:linear-gradient(135deg,#E6F6FE,#EFEAFE);border:1px solid #DCEBF7"></div>
+              <div style="width:46px;height:46px;border-radius:14px;background:#EAF6FF;border:1px solid #DCEBF7"></div>
+              <div style="width:40px;height:40px;border-radius:9px;background:#E6FBF6;border:1px solid #D6F2EA"></div>
+              <div style="width:56px;height:26px;border-radius:99px;background:#EDF2F8;border:1px solid #E3EBF3"></div>
+            </div>
+            <p class="note" style="font-size:11px;margin:10px 0 0">卡片 20 / 面板 14 / 按钮·字段 9 / 图标砖 9 / 胶囊 99。</p>
+          </div>
+          <div class="card">
+            <div class="mini-cap">层级用阴影，分隔用描边</div>
+            <div style="display:flex;gap:8px">
+              <div style="flex:1;height:52px;border-radius:12px;background:#fff;border:1px solid #E3EBF3"></div>
+              <div style="flex:1;height:52px;border-radius:12px;background:#fff;box-shadow:0 1px 2px rgba(13,27,42,.04)"></div>
+              <div style="flex:1;height:52px;border-radius:12px;background:#fff;box-shadow:0 14px 30px -16px rgba(13,27,42,.4)"></div>
+            </div>
+            <p class="note" style="font-size:11px;margin:10px 0 0">L0 无阴影（表格行）/ L1 0·1·2（卡片）/ L2 大扩散（浮层）。层级靠阴影，分隔靠 1px 描边，两者不混用。</p>
+          </div>
+        </div>
+
+        <h3>组件：可复用的最小集合</h3>
+        <div class="fitbox"><div class="fit board stage" data-w="1120" data-h="330" data-theme="light" style="width:1120px;height:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:20px 18px;align-items:start;border-radius:18px;padding:20px 22px">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="font-size:9px;font-weight:800;letter-spacing:1.2px;color:var(--ink4)">BUTTON</div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span class="btn pri"><svg class="ico s14"><use href="#i-upload"/></svg>上传</span>
+              <span class="btn sec"><svg class="ico s14"><use href="#i-plus"/></svg>新建文件夹</span>
+              <span class="btn gho">取消</span>
+              <span class="btn dgr"><svg class="ico s14"><use href="#i-trash"/></svg>删除</span>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="font-size:9px;font-weight:800;letter-spacing:1.2px;color:var(--ink4)">CHIP / SEGMENT</div>
+            <div style="display:flex;gap:6px">
+              <span class="chip on">全部 <span class="n">1,204</span></span>
+              <span class="chip">视频</span><span class="chip">图片</span><span class="chip">文档</span>
+            </div>
+            <div class="seg" style="width:max-content"><span class="on">列表</span><span>网格</span></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="font-size:9px;font-weight:800;letter-spacing:1.2px;color:var(--ink4)">FIELD</div>
+            <div class="fld" style="width:210px">
+              <label>主机地址</label>
+              <div class="in">192.168.1.20<span class="tail">:22</span></div>
+              <div class="hint">支持域名、IPv4 与 mDNS</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="font-size:9px;font-weight:800;letter-spacing:1.2px;color:var(--ink4)">BADGE / PROGRESS</div>
+            <div style="display:flex;gap:6px">
+              <span class="badge ok"><svg class="ico s12"><use href="#i-check"/></svg>已连接</span>
+              <span class="badge wn">重连中</span>
+              <span class="badge dg">认证失效</span>
+            </div>
+            <div style="width:210px">
+              <div class="tk" style="border:none;background:transparent;height:auto;padding:0">
+                <div class="r1"><b>沙丘2.mkv</b><span>62%</span></div>
+                <div class="bar"><i style="width:62%"></i></div>
+                <div class="r2">8.6 MB/s · 剩余 11:42</div>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;grid-column:1/-1">
+            <div style="font-size:9px;font-weight:800;letter-spacing:1.2px;color:var(--ink4)">ROW ANATOMY（44px）</div>
+            <div style="border:1px solid var(--line);border-radius:10px;overflow:hidden">
+              <div class="tr sel" style="grid-template-columns:30px 1fr 92px 74px;padding:0 10px">
+                <span class="cb on"><svg class="ico s12"><use href="#i-check"/></svg></span>
+                <div class="nm"><div class="tile docf"><svg class="ico s14"><use href="#i-doc"/></svg></div><b>季度报告-Q3.pdf</b></div>
+                <span class="sz">3.4 MB</span>
+                <span class="dt">10-20 14:22</span>
+              </div>
+            </div>
+            <div style="font-size:9px;color:var(--ink3);line-height:1.7">勾选 30 · 图标砖 28 · 名称弹性 · 大小 92 · 时间 128 · 动作 30</div>
+          </div>
+        </div></div>
+        <div class="mini-cap" style="margin-top:14px">以上为 1:1 实际渲染，与画板共用同一套 token</div>
+      </section>
+
+      <!-- ================= 02 Windows ================= -->
+      <section class="sec" id="s2">
+        <style>
+          .art{margin-top:26px}
+          .art-cap{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:11.5px;color:var(--dink3);flex-wrap:wrap}
+          .art-cap b{font-size:12.5px;color:var(--dink);font-weight:800;letter-spacing:-.2px}
+          .art-cap .id{font-family:var(--mono);font-size:9.5px;font-weight:800;color:var(--sky7);background:#E6F6FE;border:1px solid #CFEAFB;padding:2px 6px;border-radius:5px;letter-spacing:.4px}
+          .art-cap .sp{margin-left:auto;font-family:var(--mono);font-size:9.5px;color:var(--dink4)}
+          .art-cap .tag2{font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:5px;background:#F3F8FC;border:1px solid #E7EEF6;color:#41546A}
+          .pin.dn .tip{bottom:auto;top:26px}
+          .pin.dn .tip::after{top:auto;bottom:100%;border-top-color:transparent;border-bottom-color:#0D1B2A}
+          .x-head{display:flex;align-items:flex-end;gap:14px;padding:0 18px 12px}
+          .stat-strip{display:flex;gap:10px;padding:0 18px 12px}
+          .stat{border:1px solid var(--line);border-radius:11px;background:var(--card);padding:9px 12px;min-width:150px;box-shadow:var(--shadow-card)}
+          .stat span{display:block;font-size:9px;font-weight:800;letter-spacing:1px;color:var(--ink4);text-transform:uppercase}
+          .stat b{font-size:16px;font-weight:800;letter-spacing:-.6px;font-variant-numeric:tabular-nums;display:block;margin-top:2px}
+          .stat b em{font-style:normal;font-size:9.5px;font-weight:700;color:var(--ink3);margin-left:3px}
+          .mt-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:0 18px}
+          .spark{display:flex;align-items:flex-end;gap:2px;height:22px}
+          .spark i{width:3px;border-radius:1px;background:linear-gradient(180deg,#38BDF8,#7DD3FC);display:block;opacity:.85}
+        </style>
+
+        <div class="sec-h">
+          <div><div class="eyebrow">Windows · 1360 × 860</div><h2>桌面端：三栏 + 常驻传输</h2></div>
+          <p>左导航 236、主区弹性、详情 320；底部抽屉 94 与状态栏 30 永远不参与滚动。</p>
+        </div>
+        <p class="note">画板按容器宽度等比缩放（约 85%），放大浏览器即可查看 1:1 细节。桌面端的核心判断是「一次看到三件事」：我在哪（面包屑 + 挂载）、这里有什么（表格）、这个文件是什么（详情面板）。因此详情不做成弹窗，而是常驻第三栏，单击行即更新，双击才进入/预览。</p>
+
+        <!-- W1 -->
+        <div class="art">
+          <div class="art-cap">
+            <span class="id">W1</span><b>主窗口 · 文件浏览</b>
+            <span class="tag2">三栏 + 抽屉</span>
+            <span class="tag2">12 行 / 44px</span>
+            <span class="sp">1360 × 860 · 悬停第 3 行、选中第 7 行</span>
+          </div>
+          <div class="fitbox"><div class="fit board" data-w="1360" data-h="860" data-theme="light">
+            <!-- 标题栏 -->
+            <div class="w-bar">
+              <div class="w-logo">
+                <div class="w-mark"><svg class="ico s14"><use href="#i-cloud"/></svg></div>
+                <b>Nimbo</b><span>v1.2</span>
+              </div>
+              <div class="w-search">
+                <svg class="ico s14"><use href="#i-search"/></svg>
+                <span>搜索文件、路径或命令</span>
+                <span class="kbd"><kbd>Ctrl</kbd><kbd>K</kbd></span>
+              </div>
+              <div class="w-right">
+                <div class="w-mini"><svg class="ico s12"><use href="#i-transfer"/></svg>3 个传输<span class="bar"><i></i></span></div>
+                <div class="ibtn" style="color:var(--ink3)"><svg class="ico s14"><use href="#i-sliders"/></svg></div>
+                <div class="w-ctl">
+                  <span><svg class="ico s12"><use href="#i-min"/></svg></span>
+                  <span><svg class="ico s12"><use href="#i-max"/></svg></span>
+                  <span class="x"><svg class="ico s12"><use href="#i-close"/></svg></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="w-body">
+              <!-- 左侧栏 -->
+              <aside class="rail">
+                <div class="mount-sw">
+                  <div class="av">NAS</div>
+                  <div class="t"><b>家庭 NAS</b><span><i class="dot"></i>SFTP · 12 ms</span></div>
+                  <svg class="ico s14" style="color:var(--ink4)"><use href="#i-chevd"/></svg>
+                </div>
+                <div class="nav-i on"><svg class="ico s14"><use href="#i-folder"/></svg>全部文件</div>
+                <div class="nav-i"><svg class="ico s14"><use href="#i-clock"/></svg>最近打开</div>
+                <div class="nav-i"><svg class="ico s14"><use href="#i-star"/></svg>收藏</div>
+                <div class="nav-i"><svg class="ico s14"><use href="#i-transfer"/></svg>传输<span class="cnt">3</span></div>
+                <div class="nav-i"><svg class="ico s14"><use href="#i-server"/></svg>挂载管理<span class="cnt">5</span></div>
+                <div class="nav-i"><svg class="ico s14"><use href="#i-sliders"/></svg>设置</div>
+
+                <div class="rail-cap">我的挂载<span>+</span></div>
+                <div class="mnt">
+                  <div class="r1"><i class="dot"></i><b>家庭 NAS</b><span class="pv sftp">SFTP</span></div>
+                  <div class="r2"><i class="track"><i style="width:30%"></i></i><span>1.2 / 4 TB</span></div>
+                </div>
+                <div class="mnt">
+                  <div class="r1"><i class="dot"></i><b>对象存储-备份</b><span class="pv s3">S3</span></div>
+                  <div class="r2"><i class="track"><i style="width:64%"></i></i><span>640 GB</span></div>
+                </div>
+                <div class="mnt">
+                  <div class="r1"><i class="dot"></i><b>团队 WebDAV</b><span class="pv dav">DAV</span></div>
+                  <div class="r2"><i class="track"><i style="width:44%"></i></i><span>88 / 200 GB</span></div>
+                </div>
+                <div class="mnt">
+                  <div class="r1"><i class="dot warn"></i><b>老服务器</b><span class="pv ftp">FTP</span></div>
+                  <div class="r2"><i class="track"><i style="width:12%"></i></i><span>重连中</span></div>
+                </div>
+
+                <div class="rail-foot">
+                  <div class="storage-card">
+                    <div class="hd"><svg class="ico s12"><use href="#i-db"/></svg>本地缓存</div>
+                    <div class="big"><b>248</b><span>MB / 2 GB</span></div>
+                    <div class="track"><i style="width:38%;background:#38BDF8"></i><i style="width:14%;background:#2DD4BF"></i></div>
+                  </div>
+                </div>
+              </aside>
+
+              <!-- 主区 -->
+              <div class="wmain">
+                <div class="phead">
+                  <div class="crumbs">
+                    <span class="c"><svg class="ico s12"><use href="#i-home"/></svg>家庭 NAS</span>
+                    <span class="sep">/</span>
+                    <span class="c">media</span>
+                    <span class="sep">/</span>
+                    <span class="c cur">影视</span>
+                  </div>
+                  <div class="ph-row">
+                    <h4 class="d-title">影视</h4>
+                    <div class="ph-sub"><svg class="ico s12"><use href="#i-folder"/></svg>12 项 · 512.4 GB<span style="color:var(--ink4)">·</span>2 分钟前同步</div>
+                    <div class="ph-act">
+                      <div class="seg"><span class="on">列表</span><span>网格</span></div>
+                      <div class="ibtn bd"><svg class="ico s14"><use href="#i-sort"/></svg></div>
+                      <span class="btn sec"><svg class="ico s14"><use href="#i-plus"/></svg>新建文件夹</span>
+                      <span class="btn pri"><svg class="ico s14"><use href="#i-upload"/></svg>上传</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="toolbar">
+                  <span class="chip on">全部 <span class="n">12</span></span>
+                  <span class="chip">视频 <span class="n">3</span></span>
+                  <span class="chip">图片 <span class="n">2</span></span>
+                  <span class="chip">文档 <span class="n">2</span></span>
+                  <span class="chip">其他 <span class="n">5</span></span>
+                  <span class="tb-sep"></span>
+                  <span class="chip"><svg class="ico s12"><use href="#i-star"/></svg>只看收藏</span>
+                  <span style="margin-left:auto;font-size:9.5px;font-weight:700;color:var(--ink4)">按修改时间 ↓</span>
+                  <div class="ibtn"><svg class="ico s14"><use href="#i-refresh"/></svg></div>
+                </div>
+
+                <div class="tbl">
+                  <div class="tbl-h">
+                    <span class="cb"></span>
+                    <span class="s">名称 <svg class="ico s12" style="opacity:.5"><use href="#i-chevd"/></svg></span>
+                    <span>大小</span>
+                    <span class="s">修改时间 <svg class="ico s12" style="opacity:.5"><use href="#i-chevd"/></svg></span>
+                    <span>类型</span>
+                    <span></span>
+                  </div>
+
+                  <div class="tr">
+                    <span class="cb"></span>
+                    <div class="nm"><div class="tile"><svg class="ico s14"><use href="#i-folder"/></svg></div><b>沙丘2 (4K 原盘)</b></div>
+                    <span class="sz">—</span><span class="dt">10-21 22:14</span><span class="tp">文件夹</span>
+                    <span class="ra"><span class="ibtn"><svg class="ico s14"><use href="#i-more"/></svg></span></span>
+                  </div>
+                  <div class="tr">
+                    <span class="cb"></span>
+                    <div class="nm"><div class="tile"><svg class="ico s14"><use href="#i-folder"/></svg></div><b>蓝色星球 S01</b></div>
+                    <span class="sz">—</span><span class="dt">10-19 18:02</span><span class="tp">文件夹</span>
+                    <span class="ra"><span class="ibtn"><svg class="ico s14"><use href="#i-more"/></svg></span></span>
+                  </div>
+                  <div class="tr hov">
+                    <span class="cb"></span>
+                    <div class="nm"><div class="tile video"><svg class="ico s14"><use href="#i-video"/></svg></div>
+                      <div><b>沙丘2.2024.2160p.HDR.mkv</b><div class="meta">video/x-matroska · 下载中 62%</div></div>
+                    </div>
+                    <span class="sz">18.4 GB</span><span class="dt">10-21 22:31</span><span class="tp">视频</span>
+                    <span class="ra">
+                      <span class="ibtn"><svg class="ico s14"><use href="#i-download"/></svg></span>
+                      <span class="ibtn"><svg class="ico s14"><use href="#i-more"/></svg></span>
+                    </span>
+                  </div>
+                  <div class="tr">
+                    <span class="cb"></span>
+                    <div class="nm"><div class="tile video"><svg class="ico s14"><use href="#i-video"/></svg></div><b>蓝色星球.S01E03.2160p.mkv</b></div>
+                    <span class="sz">2.1 GB</span><span class="dt">10-19 18:20</span><span class="tp">视频</span>
+                    <span class="ra"><span class="ibtn"><svg class="ico s14"><use href="#i-more"/></svg></span></span>
+                  </div>
+                  <div class="tr">
+                    <span class="cb"></span>
+                    <div class="nm"><div class="tile video"><svg class="ico s14"><use href="#i-video"/></svg></div><b>星际穿越.2014.1080p.mp4</b></div>
+                    <span class="sz">4.8 GB</span><span class="dt">10-18 21:10</span><span class="tp">视频</span>
+                    <span class="ra"><span class="ibtn"><svg class="ico s14"><use href="#i-more"/></svg></span></span>
+                  </div>
+                  <div class="tr">
+                    <span class="cb"></span>
+                    <div class="nm"><div class="tile image"><svg class="ico s14"><use href="#i-image"/></svg></div><b>海报-终稿.png</b></div>
+                    <span class="sz">12.8 MB</span><span class="dt">10-22 09:14</span><span class="tp">图片</span>
+                    <span class="ra"><span class="ibtn"><svg class="ico s14"><use href="#i-more"/></svg></span></span>
+                  </div>
+                  <div class="tr sel">
+                    <span class="cb on"><svg class="ico s12"><use href="#i-check"/></svg></span>
+                    <div class="nm"><div class="tile docf"><svg class="ico s14"><use href="#i-doc"/></svg></div><b>季度报告-Q3.pdf</b></div>
+                    <span class="sz">3.4 MB</span><span class="dt">10-20 14:22</span><span class="tp">文档</span>
+                    <span class="ra"><span class="ibtn"><svg class="ico s14"><use href="#i-more"/></svg></span></span>
+                  </div>
+                  <div class="tr">
+                    <span class="cb"></span>
+                    <div class="nm"><div class="tile docf"><svg class="ico s14"><use href="#i-doc"/></svg></div><b>影视清单-2026.xlsx</b></div>
+                    <span class="sz">862 KB</span><span class="dt">10-17 11:03</span><span class="tp">文档</span>
+                    <span class="ra"><span class="ibtn"><svg class="ico s14"><use href="#i-more"/></svg></span></span>
+                  </div>
+                  <div class="tr">
+                    <span class="cb"></span>
+                    <div class="nm"><div class="tile audio"><svg class="ico s14"><use href="#i-audio"/></svg></div><b>播客-第42期.mp3</b></div>
+                    <span class="sz">58.2 MB</span><span class="dt">10-15 20:40</span><span class="tp">音频</span>
+                    <span class="ra"><span class="ibtn"><svg class="ico s14"><use href="#i-more"/></svg></span></span>
+                  </div>
+                  <div class="tr">
+                    <span class="cb"></span>
+                    <div class="nm"><div class="tile zip"><svg class="ico s14"><use href="#i-archive"/></svg></div><b>字幕打包.zip</b></div>
+                    <span class="sz">214 MB</span><span class="dt">10-12 16:55</span><span class="tp">压缩包</span>
+                    <span class="ra"><span class="ibtn"><svg class="ico s14"><use href="#i-more"/></svg></span></span>
+                  </div>
+                  <div class="tr">
+                    <span class="cb"></span>
+                    <div class="nm"><div class="tile zip"><svg class="ico s14"><use href="#i-archive"/></svg></div><b>dataset.tar.zst</b></div>
+                    <span class="sz">6.8 GB</span><span class="dt">10-08 03:12</span><span class="tp">压缩包</span>
+                    <span class="ra"><span class="ibtn"><svg class="ico s14"><use href="#i-more"/></svg></span></span>
+                  </div>
+                  <div class="tr">
+                    <span class="cb"></span>
+                    <div class="nm"><div class="tile image"><svg class="ico s14"><use href="#i-image"/></svg></div><b>IMG_4821.HEIC</b></div>
+                    <span class="sz">4.2 MB</span><span class="dt">10-07 12:31</span><span class="tp">图片</span>
+                    <span class="ra"><span class="ibtn"><svg class="ico s14"><use href="#i-more"/></svg></span></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 详情栏 -->
+              <aside class="insp">
+                <div class="insp-hd">详情<div class="ibtn"><svg class="ico s14"><use href="#i-close"/></svg></div></div>
+                <div class="insp-b">
+                  <div class="preview">
+                    <span class="pv-tag">PDF · 3 页</span>
+                    <svg class="ico pv-ic" style="width:46px;height:46px;stroke-width:1.2"><use href="#i-doc"/></svg>
+                    <div class="pv-ft">预览已缓存在本地 · 无需重新下载</div>
+                  </div>
+                  <div class="i-name">季度报告-Q3.pdf</div>
+                  <div class="i-path">sftp://192.168.1.20:22/media/影视/季度报告-Q3.pdf</div>
+                  <div class="i-meta">
+                    <div class="r"><span>类型</span><b>PDF 文档</b></div>
+                    <div class="r"><span>大小</span><b>3.4 MB</b></div>
+                    <div class="r"><span>修改时间</span><b>2026-10-20 14:22</b></div>
+                    <div class="r"><span>权限</span><b><svg class="ico s12"><use href="#i-lock"/></svg>只读</b></div>
+                    <div class="r"><span>校验</span><b class="mono" style="font-size:9px">a91f…7c2e</b></div>
+                  </div>
+                  <div class="i-acts">
+                    <span class="btn pri"><svg class="ico s14"><use href="#i-download"/></svg>下载</span>
+                    <span class="btn sec"><svg class="ico s14"><use href="#i-eye"/></svg>预览</span>
+                    <span class="btn sec"><svg class="ico s14"><use href="#i-pencil"/></svg>重命名</span>
+                    <span class="btn sec"><svg class="ico s14"><use href="#i-move"/></svg>移动</span>
+                  </div>
+                  <div class="i-tags">
+                    <span class="badge bl">项目</span><span class="badge">待归档</span><span class="badge wn">只读挂载</span>
+                  </div>
+                </div>
+              </aside>
+            </div>
+
+            <!-- 传输抽屉 -->
+            <div class="drawer">
+              <div class="dw-cap">
+                <b><svg class="ico s12" style="color:var(--sky6)"><use href="#i-transfer"/></svg>传输中 3</b>
+                <span>↓ 8.6 · ↑ 4.1 MB/s</span>
+              </div>
+              <div class="tk">
+                <div class="r1"><b>沙丘2.2024.2160p.HDR.mkv</b><span>62%</span></div>
+                <div class="bar"><i style="width:62%"></i></div>
+                <div class="r2">12.4 / 18.4 GB · 8.6 MB/s · 剩余 11:42<span class="sp"><svg class="ico s12"><use href="#i-pause"/></svg></span></div>
+              </div>
+              <div class="tk">
+                <div class="r1"><b>设计素材-终版.zip</b><span>34%</span></div>
+                <div class="bar"><i style="width:34%"></i></div>
+                <div class="r2">1.2 / 3.6 GB · 4.1 MB/s · 剩余 09:48<span class="sp"><svg class="ico s12"><use href="#i-pause"/></svg></span></div>
+              </div>
+              <div class="tk pause">
+                <div class="r1"><b>团队资料.7z</b><span style="color:#B47405">已暂停</span></div>
+                <div class="bar"><i style="width:18%"></i></div>
+                <div class="r2">842 MB / 4.6 GB · 手动暂停<span class="sp"><svg class="ico s12"><use href="#i-play"/></svg></span></div>
+              </div>
+              <div class="dw-end">
+                <span class="btn sec">全部暂停</span>
+                <span class="btn gho">查看全部<svg class="ico s12"><use href="#i-chevr"/></svg></span>
+              </div>
+            </div>
+
+            <div class="statusbar">
+              <span class="it"><i class="dot"></i>已连接 <b>家庭 NAS · SFTP</b></span>
+              <span class="it"><svg class="ico s12"><use href="#i-wifi"/></svg>12 ms</span>
+              <span class="it">并发 <b>4 / 4</b></span>
+              <span class="right">
+                <span class="it">↑ <b>4.1 MB/s</b></span>
+                <span class="it">↓ <b>8.6 MB/s</b></span>
+                <span>缓存 248 MB</span>
+                <span>v1.0.0</span>
+              </span>
+            </div>
+
+            <span class="pin dn" style="left:536px;top:12px">1<span class="tip">全局搜索 · 文件 / 路径 / 命令</span></span>
+            <span class="pin" style="left:214px;top:58px">2<span class="tip">挂载切换器：协议 + 延迟 + 容量</span></span>
+            <span class="pin" style="left:216px;top:192px">3<span class="tip">导航 + 传输计数，全局唯一的任务入口</span></span>
+            <span class="pin dn" style="left:1006px;top:60px">4<span class="tip">唯一渐变主行动：上传</span></span>
+            <span class="pin" style="left:300px;top:175px">5<span class="tip">列语义：排序箭头常驻，不藏在菜单</span></span>
+            <span class="pin" style="left:896px;top:299px">6<span class="tip">行内动作仅在悬停出现，避免噪声</span></span>
+            <span class="pin" style="left:1240px;top:50px">7<span class="tip">详情：元信息 + 能力差异（只读）+ 校验值</span></span>
+            <span class="pin" style="left:600px;top:741px">8<span class="tip">常驻传输抽屉，可折叠为标题栏微型进度</span></span>
+            <span class="pin" style="left:300px;top:836px">9<span class="tip">状态栏：连接态 / 并发 / 上下行</span></span>
+          </div></div>
+          <div class="legend">
+            <div class="lg"><b>1</b><span><b>搜索即命令。</b>同一入口既搜文件名，也接受 <span class="mono">webdav 团队</span> 这类命令与路径跳转，回车直达。</span></div>
+            <div class="lg"><b>2</b><span><b>挂载是身份。</b>切换器常驻左上，切换即换根，旧任务的进度不会丢。</span></div>
+            <div class="lg"><b>3</b><span><b>计数可见。</b>传输数直接标在导航上，用户不必点开才知道有任务在跑。</span></div>
+            <div class="lg"><b>4</b><span><b>单一主行动。</b>一屏只有一个渐变按钮，其余为描边或幽灵按钮。</span></div>
+            <div class="lg"><b>5</b><span><b>列可读。</b>表头 9px 全大写 + 字距 1px，与 12px 正文拉开层级，不靠加粗区分。</span></div>
+            <div class="lg"><b>6</b><span><b>选中 vs 悬停。</b>选中用左侧 3px 竖条 + 淡蓝底；悬停只提亮，不改变结构。</span></div>
+            <div class="lg"><b>7</b><span><b>协议能力外显。</b>只读、无容量、无原子移动等限制直接写在权限行，避免用户点了删除才发现失败。</span></div>
+            <div class="lg"><b>8</b><span><b>进度双通道。</b>抽屉给细节，标题栏给总量；关闭抽屉仍有感知。</span></div>
+            <div class="lg"><b>9</b><span><b>状态栏是诊断入口。</b>点击延迟数字可直接打开连接诊断。</span></div>
+            <div class="lg" style="color:var(--dink3)"><b style="background:#F3F8FC;color:#7C8FA3">i</b><span>栅格：236 导航 / 弹性主区 / 320 详情；主区左右边距 18，表格行 44，圆角 14。</span></div>
+          </div>
+        </div>
+
+        <!-- W2 -->
+        <div class="art">
+          <div class="art-cap">
+            <span class="id">W2</span><b>传输中心 · 全页</b>
+            <span class="tag2">5 任务 · 含失败态</span>
+            <span class="sp">从抽屉「查看全部」进入</span>
+          </div>
+          <div class="fitbox"><div class="fit board" data-w="1360" data-h="860" data-theme="light">
+            <div class="w-bar">
+              <div class="w-logo"><div class="w-mark"><svg class="ico s14"><use href="#i-cloud"/></svg></div><b>Nimbo</b><span>v1.2</span></div>
+              <div class="w-search"><svg class="ico s14"><use href="#i-search"/></svg><span>搜索文件、路径或命令</span><span class="kbd"><kbd>Ctrl</kbd><kbd>K</kbd></span></div>
+              <div class="w-right">
+                <div class="w-mini"><svg class="ico s12"><use href="#i-transfer"/></svg>2 个进行中<span class="bar"><i style="width:78%"></i></span></div>
+                <div class="w-ctl"><span><svg class="ico s12"><use href="#i-min"/></svg></span><span><svg class="ico s12"><use href="#i-max"/></svg></span><span class="x"><svg class="ico s12"><use href="#i-close"/></svg></span></div>
+              </div>
+            </div>
+            <div class="w-body">
+              <aside class="rail">
+                <div class="mount-sw"><div class="av">NAS</div><div class="t"><b>家庭 NAS</b><span><i class="dot"></i>SFTP · 12 ms</span></div><svg class="ico s14" style="color:var(--ink4)"><use href="#i-chevd"/></svg></div>
+                <div class="nav-i"><svg class="ico s14"><use href="#i-folder"/></svg>全部文件</div>
+                <div class="nav-i"><svg class="ico s14"><use href="#i-clock"/></svg>最近打开</div>
+                <div class="nav-i"><svg class="ico s14"><use href="#i-star"/></svg>收藏</div>
+                <div class="nav-i on"><svg class="ico s14"><use href="#i-transfer"/></svg>传输<span class="cnt">5</span></div>
+                <div class="nav-i"><svg class="ico s14"><use href="#i-server"/></svg>挂载管理<span class="cnt">5</span></div>
+                <div class="nav-i"><svg class="ico s14"><use href="#i-sliders"/></svg>设置</div>
+                <div class="rail-cap">我的挂载<span>+</span></div>
+                <div class="mnt"><div class="r1"><i class="dot"></i><b>家庭 NAS</b><span class="pv sftp">SFTP</span></div><div class="r2"><i class="track"><i style="width:30%"></i></i><span>1.2 / 4 TB</span></div></div>
+                <div class="mnt"><div class="r1"><i class="dot"></i><b>对象存储-备份</b><span class="pv s3">S3</span></div><div class="r2"><i class="track"><i style="width:64%"></i></i><span>640 GB</span></div></div>
+                <div class="mnt"><div class="r1"><i class="dot"></i><b>团队 WebDAV</b><span class="pv dav">DAV</span></div><div class="r2"><i class="track"><i style="width:44%"></i></i><span>88 / 200 GB</span></div></div>
+                <div class="mnt"><div class="r1"><i class="dot warn"></i><b>老服务器</b><span class="pv ftp">FTP</span></div><div class="r2"><i class="track"><i style="width:12%"></i></i><span>重连中</span></div></div>
+                <div class="rail-foot"><div class="storage-card"><div class="hd"><svg class="ico s12"><use href="#i-db"/></svg>本地缓存</div><div class="big"><b>248</b><span>MB / 2 GB</span></div><div class="track"><i style="width:38%;background:#38BDF8"></i><i style="width:14%;background:#2DD4BF"></i></div></div></div>
+              </aside>
+
+              <div class="wmain">
+                <div class="phead" style="padding-bottom:8px">
+                  <div class="crumbs"><span class="c"><svg class="ico s12"><use href="#i-transfer"/></svg>传输</span><span class="sep">/</span><span class="c cur">全部任务</span></div>
+                  <div class="ph-row">
+                    <h4 class="d-title">传输</h4>
+                    <div class="ph-sub">5 个任务 · 2 进行中 · 1 失败</div>
+                    <div class="ph-act">
+                      <span class="btn gho"><svg class="ico s14"><use href="#i-pause"/></svg>全部暂停</span>
+                      <span class="btn sec"><svg class="ico s14"><use href="#i-sliders"/></svg>限速与并发</span>
+                      <span class="btn pri"><svg class="ico s14"><use href="#i-upload"/></svg>上传文件</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="toolbar" style="padding-bottom:8px">
+                  <span class="chip on">全部 <span class="n">5</span></span>
+                  <span class="chip">下载 <span class="n">3</span></span>
+                  <span class="chip">上传 <span class="n">1</span></span>
+                  <span class="chip">已完成 <span class="n">1</span></span>
+                  <span class="chip">失败 <span class="n">1</span></span>
+                  <span class="tb-sep"></span>
+                  <span class="chip"><svg class="ico s12"><use href="#i-refresh"/></svg>失败自动重试 3 次</span>
+                </div>
+                <div class="stat-strip">
+                  <div class="stat"><span>Downlink</span><b>8.6<em>MB/s</em></b></div>
+                  <div class="stat"><span>Uplink</span><b>4.1<em>MB/s</em></b></div>
+                  <div class="stat"><span>今日已传</span><b>42.8<em>GB</em></b></div>
+                  <div class="stat" style="min-width:0;flex:1">
+                    <span>实时吞吐 · 60s</span>
+                    <div class="spark" style="height:20px;margin-top:4px">
+                      <i style="height:30%"></i><i style="height:44%"></i><i style="height:38%"></i><i style="height:56%"></i><i style="height:72%"></i><i style="height:66%"></i><i style="height:88%"></i><i style="height:76%"></i><i style="height:62%"></i><i style="height:70%"></i><i style="height:84%"></i><i style="height:92%"></i><i style="height:78%"></i><i style="height:58%"></i><i style="height:64%"></i><i style="height:82%"></i><i style="height:96%"></i><i style="height:88%"></i><i style="height:72%"></i><i style="height:60%"></i><i style="height:76%"></i><i style="height:90%"></i><i style="height:74%"></i><i style="height:56%"></i><i style="height:66%"></i><i style="height:86%"></i><i style="height:94%"></i><i style="height:80%"></i><i style="height:68%"></i><i style="height:58%"></i>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="tbl" style="margin-top:2px">
+                  <div class="x-row hd" style="grid-template-columns:30px 1fr 150px 96px 84px 80px">
+                    <span></span><span>任务</span><span>进度</span><span>速度</span><span>剩余</span><span></span>
+                  </div>
+                  <div class="x-row" style="grid-template-columns:30px 1fr 150px 96px 84px 80px">
+                    <div class="tile" style="width:26px;height:26px;border-radius:8px;color:#38BDF8;background:rgba(56,189,248,.13)"><svg class="ico s14"><use href="#i-download"/></svg></div>
+                    <div class="nm"><b>沙丘2.2024.2160p.HDR.mkv</b><span>家庭 NAS / media / 影视 → 下载 / 影视</span></div>
+                    <div><div class="num" style="font-size:9.5px;color:var(--ink3);font-weight:700">62% · 12.4 / 18.4 GB</div><div class="bar"><i style="width:62%"></i></div></div>
+                    <span class="num" style="font-weight:700;font-size:10.5px">8.6 MB/s</span>
+                    <span class="num" style="font-size:10.5px;color:var(--ink3)">11:42</span>
+                    <div style="display:flex;gap:2px;justify-content:flex-end"><span class="ibtn"><svg class="ico s14"><use href="#i-pause"/></svg></span><span class="ibtn"><svg class="ico s14"><use href="#i-close"/></svg></span></div>
+                  </div>
+                  <div class="x-row" style="grid-template-columns:30px 1fr 150px 96px 84px 80px">
+                    <div class="tile" style="width:26px;height:26px;border-radius:8px;color:#2DD4BF;background:rgba(45,212,191,.14)"><svg class="ico s14"><use href="#i-upload"/></svg></div>
+                    <div class="nm"><b>设计素材-终版.zip</b><span>本地 / D:/work/assets → S3 / nimbo-backup</span></div>
+                    <div><div class="num" style="font-size:9.5px;color:var(--ink3);font-weight:700">34% · 1.2 / 3.6 GB</div><div class="bar"><i style="width:34%"></i></div></div>
+                    <span class="num" style="font-weight:700;font-size:10.5px">4.1 MB/s</span>
+                    <span class="num" style="font-size:10.5px;color:var(--ink3)">09:48</span>
+                    <div style="display:flex;gap:2px;justify-content:flex-end"><span class="ibtn"><svg class="ico s14"><use href="#i-pause"/></svg></span><span class="ibtn"><svg class="ico s14"><use href="#i-close"/></svg></span></div>
+                  </div>
+                  <div class="x-row" style="grid-template-columns:30px 1fr 150px 96px 84px 80px">
+                    <div class="tile" style="width:26px;height:26px;border-radius:8px;color:#F59E0B;background:rgba(245,158,11,.13)"><svg class="ico s14"><use href="#i-pause"/></svg></div>
+                    <div class="nm"><b>团队资料.7z</b><span>团队 WebDAV / drive / 共享 → 本地</span></div>
+                    <div><div class="num" style="font-size:9.5px;color:var(--ink3);font-weight:700">18% · 842 MB / 4.6 GB</div><div class="bar"><i style="width:18%;background:linear-gradient(90deg,#F59E0B,#FBBF24)"></i></div></div>
+                    <span style="font-size:10.5px;color:var(--ink4)">—</span>
+                    <span class="badge wn">已暂停</span>
+                    <div style="display:flex;gap:2px;justify-content:flex-end"><span class="ibtn" style="color:var(--sky7)"><svg class="ico s14"><use href="#i-play"/></svg></span><span class="ibtn"><svg class="ico s14"><use href="#i-close"/></svg></span></div>
+                  </div>
+                  <div class="x-row" style="grid-template-columns:30px 1fr 150px 96px 84px 80px;background:rgba(244,63,94,.04)">
+                    <div class="tile" style="width:26px;height:26px;border-radius:8px;color:#E23D57;background:rgba(244,63,94,.12)"><svg class="ico s14"><use href="#i-info"/></svg></div>
+                    <div class="nm"><b>相机备份-2026.zip</b><span style="color:#B3203B">校验失败：CRC 不匹配 · 已重试 2 / 3 次</span></div>
+                    <div><div class="num" style="font-size:9.5px;color:#B3203B;font-weight:700">87% · 中断</div><div class="bar"><i style="width:87%;background:#F43F5E"></i></div></div>
+                    <span style="font-size:10.5px;color:var(--ink4)">—</span>
+                    <span class="badge dg">失败</span>
+                    <div style="display:flex;gap:2px;justify-content:flex-end"><span class="btn sec" style="height:24px;font-size:9.5px;padding:0 7px">重试</span></div>
+                  </div>
+                  <div class="x-row" style="grid-template-columns:30px 1fr 150px 96px 84px 80px">
+                    <div class="tile" style="width:26px;height:26px;border-radius:8px;color:#22C55E;background:rgba(34,197,94,.12)"><svg class="ico s14"><use href="#i-check"/></svg></div>
+                    <div class="nm"><b>蓝色星球.S01E03.2160p.mkv</b><span>SHA256 校验通过 · 用时 4 分 12 秒</span></div>
+                    <div><div class="num" style="font-size:9.5px;color:var(--ink3);font-weight:700">100% · 2.1 GB</div><div class="bar"><i style="width:100%;background:#22C55E"></i></div></div>
+                    <span class="badge ok">完成</span>
+                    <span style="font-size:10.5px;color:var(--ink4)">today</span>
+                    <div style="display:flex;gap:2px;justify-content:flex-end"><span class="ibtn"><svg class="ico s14"><use href="#i-folder"/></svg></span><span class="ibtn"><svg class="ico s14"><use href="#i-more"/></svg></span></div>
+                  </div>
+                  <div class="x-row" style="grid-template-columns:30px 1fr 150px 96px 84px 80px">
+                    <div class="tile" style="width:26px;height:26px;border-radius:8px;color:#9AABBC;background:rgba(154,171,188,.14)"><svg class="ico s14"><use href="#i-clock"/></svg></div>
+                    <div class="nm"><b>星际穿越.2014.1080p.mp4</b><span>家庭 NAS / media / 影视 → 本地 / 影视</span></div>
+                    <div><div class="num" style="font-size:9.5px;color:var(--ink3);font-weight:700">排队中 · 0 / 4.8 GB</div><div class="bar"><i style="width:0%"></i></div></div>
+                    <span style="font-size:10.5px;color:var(--ink4)">—</span>
+                    <span class="badge" style="color:var(--ink3);background:var(--chip-bg);border-color:var(--chip-border)">等待中</span>
+                    <div style="display:flex;gap:2px;justify-content:flex-end"><span class="ibtn"><svg class="ico s14"><use href="#i-play"/></svg></span><span class="ibtn"><svg class="ico s14"><use href="#i-close"/></svg></span></div>
+                  </div>
+                  <div class="x-row" style="grid-template-columns:30px 1fr 150px 96px 84px 80px">
+                    <div class="tile" style="width:26px;height:26px;border-radius:8px;color:#22C55E;background:rgba(34,197,94,.12)"><svg class="ico s14"><use href="#i-check"/></svg></div>
+                    <div class="nm"><b>播客-第42期.mp3</b><span>本地 → 团队 WebDAV / drive / 音频</span></div>
+                    <div><div class="num" style="font-size:9.5px;color:var(--ink3);font-weight:700">100% · 58.2 MB</div><div class="bar"><i style="width:100%;background:#22C55E"></i></div></div>
+                    <span class="badge ok">完成</span>
+                    <span style="font-size:10.5px;color:var(--ink4)">today</span>
+                    <div style="display:flex;gap:2px;justify-content:flex-end"><span class="ibtn"><svg class="ico s14"><use href="#i-folder"/></svg></span><span class="ibtn"><svg class="ico s14"><use href="#i-more"/></svg></span></div>
+                  </div>
+                </div>
+
+                <div style="margin:12px 18px 0;display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;background:var(--card);padding:10px 12px;box-shadow:var(--shadow-card)">
+                  <svg class="ico s14" style="color:var(--sky6)"><use href="#i-bolt"/></svg>
+                  <span style="font-size:10.5px;font-weight:700">全局限速</span>
+                  <span class="badge">下载 <b style="margin-left:3px">不限</b></span>
+                  <span class="badge">上传 <b style="margin-left:3px">2 MB/s</b></span>
+                  <span style="font-size:10px;color:var(--ink3);font-weight:600">改完即时生效，不需要重启任务</span>
+                  <span style="margin-left:auto" class="btn gho">调度设置<svg class="ico s12"><use href="#i-chevr"/></svg></span>
+                </div>
+              </div>
+            </div>
+            <div class="statusbar">
+              <span class="it"><i class="dot"></i>已连接 <b>家庭 NAS · SFTP</b></span>
+              <span class="it">并发 <b>4 / 4</b></span>
+              <span class="right"><span class="it">↑ <b>4.1 MB/s</b></span><span class="it">↓ <b>8.6 MB/s</b></span><span>任务持久化已开启</span><span>v1.0.0</span></span>
+            </div>
+          </div></div>
+          <p class="note" style="margin-top:12px">失败态不做成红色整行：只在图标、错误文案与进度条三处上色，保留行的可读性；重试按钮内联在行尾，不强制进入弹窗。</p>
+        </div>
+
+        <!-- W3 -->
+        <div class="art">
+          <div class="art-cap">
+            <span class="id">W3</span><b>挂载管理</b>
+            <span class="tag2">5 协议 · 状态/容量/能力</span>
+            <span class="sp">协议差异集中在这一页，文件页保持同构</span>
+          </div>
+          <div class="fitbox"><div class="fit board" data-w="1360" data-h="860" data-theme="light">
+            <div class="w-bar">
+              <div class="w-logo"><div class="w-mark"><svg class="ico s14"><use href="#i-cloud"/></svg></div><b>Nimbo</b><span>v1.2</span></div>
+              <div class="w-search"><svg class="ico s14"><use href="#i-search"/></svg><span>搜索文件、路径或命令</span><span class="kbd"><kbd>Ctrl</kbd><kbd>K</kbd></span></div>
+              <div class="w-right"><div class="w-mini"><svg class="ico s12"><use href="#i-transfer"/></svg>3 个传输<span class="bar"><i></i></span></div><div class="w-ctl"><span><svg class="ico s12"><use href="#i-min"/></svg></span><span><svg class="ico s12"><use href="#i-max"/></svg></span><span class="x"><svg class="ico s12"><use href="#i-close"/></svg></span></div></div>
+            </div>
+            <div class="w-body">
+              <aside class="rail">
+                <div class="mount-sw"><div class="av">NAS</div><div class="t"><b>家庭 NAS</b><span><i class="dot"></i>SFTP · 12 ms</span></div><svg class="ico s14" style="color:var(--ink4)"><use href="#i-chevd"/></svg></div>
+                <div class="nav-i"><svg class="ico s14"><use href="#i-folder"/></svg>全部文件</div>
+                <div class="nav-i"><svg class="ico s14"><use href="#i-clock"/></svg>最近打开</div>
+                <div class="nav-i"><svg class="ico s14"><use href="#i-star"/></svg>收藏</div>
+                <div class="nav-i"><svg class="ico s14"><use href="#i-transfer"/></svg>传输<span class="cnt">3</span></div>
+                <div class="nav-i on"><svg class="ico s14"><use href="#i-server"/></svg>挂载管理<span class="cnt">5</span></div>
+                <div class="nav-i"><svg class="ico s14"><use href="#i-sliders"/></svg>设置</div>
+                <div class="rail-cap">我的挂载<span>+</span></div>
+                <div class="mnt"><div class="r1"><i class="dot"></i><b>家庭 NAS</b><span class="pv sftp">SFTP</span></div><div class="r2"><i class="track"><i style="width:30%"></i></i><span>1.2 / 4 TB</span></div></div>
+                <div class="mnt"><div class="r1"><i class="dot"></i><b>对象存储-备份</b><span class="pv s3">S3</span></div><div class="r2"><i class="track"><i style="width:64%"></i></i><span>640 GB</span></div></div>
+                <div class="mnt"><div class="r1"><i class="dot"></i><b>团队 WebDAV</b><span class="pv dav">DAV</span></div><div class="r2"><i class="track"><i style="width:44%"></i></i><span>88 / 200 GB</span></div></div>
+                <div class="mnt"><div class="r1"><i class="dot warn"></i><b>老服务器</b><span class="pv ftp">FTP</span></div><div class="r2"><i class="track"><i style="width:12%"></i></i><span>重连中</span></div></div>
+                <div class="rail-foot"><div class="storage-card"><div class="hd"><svg class="ico s12"><use href="#i-db"/></svg>本地缓存</div><div class="big"><b>248</b><span>MB / 2 GB</span></div><div class="track"><i style="width:38%;background:#38BDF8"></i><i style="width:14%;background:#2DD4BF"></i></div></div></div>
+              </aside>
+
+              <div class="wmain">
+                <div class="phead">
+                  <div class="crumbs"><span class="c"><svg class="ico s12"><use href="#i-server"/></svg>挂载管理</span></div>
+                  <div class="ph-row">
+                    <h4 class="d-title">挂载管理</h4>
+                    <div class="ph-sub">5 个挂载 · 3 在线 · 1 重连中 · 1 离线</div>
+                    <div class="ph-act">
+                      <span class="btn gho"><svg class="ico s14"><use href="#i-external"/></svg>导入 / 导出</span>
+                      <span class="btn pri"><svg class="ico s14"><use href="#i-plus"/></svg>添加挂载</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="toolbar">
+                  <span class="chip on">全部 <span class="n">5</span></span>
+                  <span class="chip">在线 <span class="n">3</span></span>
+                  <span class="chip">异常 <span class="n">2</span></span>
+                  <span class="chip">只读 <span class="n">1</span></span>
+                  <span class="tb-sep"></span>
+                  <span class="chip"><svg class="ico s12"><use href="#i-refresh"/></svg>全部重新连接</span>
+                </div>
+
+                <div class="mt-grid">
+                  <div class="mt-card">
+                    <div class="hd"><span class="pv sftp">SFTP</span><b>家庭 NAS</b><i class="dot"></i></div>
+                    <div class="addr">sftp://192.168.1.20:22/media</div>
+                    <div class="cap">
+                      <div class="l"><span>已用 1.2 TB</span><span>共 4 TB</span></div>
+                      <div class="t"><i style="width:30%;background:linear-gradient(90deg,#38BDF8,#2DD4BF)"></i><i style="width:8%;background:rgba(56,189,248,.25)"></i></div>
+                    </div>
+                    <div class="ft"><svg class="ico s12"><use href="#i-wifi"/></svg>12 ms<span style="margin-left:auto">2 分钟前同步</span></div>
+                  </div>
+                  <div class="mt-card">
+                    <div class="hd"><span class="pv s3">S3</span><b>对象存储-备份</b><i class="dot"></i></div>
+                    <div class="addr">s3 · oss-cn-hangzhou · nimbo-backup</div>
+                    <div class="cap">
+                      <div class="l"><span>已用 640 GB</span><span>按量计费</span></div>
+                      <div class="t"><i style="width:64%;background:linear-gradient(90deg,#7C5CFC,#A78BFA)"></i></div>
+                    </div>
+                    <div class="ft"><svg class="ico s12"><use href="#i-wifi"/></svg>48 ms<span style="margin-left:auto">仅写入 · 版本化开</span></div>
+                  </div>
+                  <div class="mt-card">
+                    <div class="hd"><span class="pv dav">DAV</span><b>团队 WebDAV</b><i class="dot"></i></div>
+                    <div class="addr">https://dav.team.cn/drive</div>
+                    <div class="cap">
+                      <div class="l"><span>已用 88 GB</span><span>共 200 GB</span></div>
+                      <div class="t"><i style="width:44%;background:linear-gradient(90deg,#0DA98F,#2DD4BF)"></i><i style="width:6%;background:rgba(13,169,143,.25)"></i></div>
+                    </div>
+                    <div class="ft"><svg class="ico s12"><use href="#i-wifi"/></svg>86 ms<span style="margin-left:auto">5 分钟前同步</span></div>
+                  </div>
+                  <div class="mt-card">
+                    <div class="hd"><span class="pv ftp">FTP</span><b>老服务器</b><i class="dot warn"></i></div>
+                    <div class="addr">ftp://10.0.0.8:21/upload</div>
+                    <div class="cap">
+                      <div class="l"><span>已用 320 GB</span><span>容量未知</span></div>
+                      <div class="t"><i style="width:100%;background:repeating-linear-gradient(90deg,#E7EEF6 0 6px,transparent 6px 10px)"></i></div>
+                    </div>
+                    <div class="ft" style="color:#A9700A"><svg class="ico s12"><use href="#i-link"/></svg>经 HTTP 代理 127.0.0.1:7890<span style="margin-left:auto">重连中</span></div>
+                  </div>
+                  <div class="mt-card">
+                    <div class="hd"><span class="pv loc">LOCAL</span><b>移动硬盘</b><i class="dot"></i></div>
+                    <div class="addr">D:\Media\备份 · 只读挂载</div>
+                    <div class="cap">
+                      <div class="l"><span>已用 1.2 TB</span><span>共 3 TB</span></div>
+                      <div class="t"><i style="width:40%;background:linear-gradient(90deg,#63788E,#94A9BC)"></i><i style="width:6%;background:rgba(99,120,142,.25)"></i></div>
+                    </div>
+                    <div class="ft"><svg class="ico s12"><use href="#i-machine"/></svg>本机 · 无网络延迟<span style="margin-left:auto">可作中转与离线缓存</span></div>
+                  </div>
+                  <div class="mt-add">
+                    <svg class="ico s20" style="color:var(--sky6)"><use href="#i-plus"/></svg>
+                    <span>添加挂载</span>
+                    <span style="font-size:9.5px;font-weight:600;color:var(--ink4)">FTP · SFTP · S3 · WebDAV · 本地</span>
+                  </div>
+                </div>
+
+                <div style="margin:14px 18px 0;display:flex;align-items:center;gap:10px;border:1px dashed var(--field-border);border-radius:12px;padding:10px 12px;color:var(--ink3);font-size:10px;font-weight:600">
+                  <svg class="ico s14" style="color:var(--sky6)"><use href="#i-info"/></svg>
+                  挂载按需连接：只有打开某个挂载时才建立会话，闲置 5 分钟自动断开以省电、省连接数。离线时优先读取本地缓存目录树。
+                </div>
+
+                <div style="margin:12px 18px 0;border:1px solid var(--line);border-radius:12px;background:var(--card);overflow:hidden;box-shadow:var(--shadow-card)">
+                  <div style="height:30px;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--hair);font-size:9px;font-weight:800;letter-spacing:1.1px;color:var(--ink4)">
+                    <svg class="ico s12"><use href="#i-clock"/></svg>最近连接
+                    <span style="margin-left:auto;font-weight:700;letter-spacing:0;color:var(--sky7)">查看完整日志</span>
+                  </div>
+                  <div style="display:grid;grid-template-columns:86px 1fr 96px 76px 90px;gap:10px;padding:7px 12px;font-size:10px;font-weight:600;color:var(--ink2);border-bottom:1px solid var(--hair)">
+                    <span class="mono" style="color:var(--ink4)">14:42:08</span><span>家庭 NAS · SFTP</span><span class="badge ok" style="justify-self:start">握手成功</span><span class="num">12 ms</span><span style="color:var(--ink4)">读 48 项</span>
+                  </div>
+                  <div style="display:grid;grid-template-columns:86px 1fr 96px 76px 90px;gap:10px;padding:7px 12px;font-size:10px;font-weight:600;color:var(--ink2);border-bottom:1px solid var(--hair)">
+                    <span class="mono" style="color:var(--ink4)">14:39:51</span><span>对象存储-备份 · S3</span><span class="badge ok" style="justify-self:start">签名有效</span><span class="num">48 ms</span><span style="color:var(--ink4)">分片上传 ×4</span>
+                  </div>
+                  <div style="display:grid;grid-template-columns:86px 1fr 96px 76px 90px;gap:10px;padding:7px 12px;font-size:10px;font-weight:600;color:var(--ink2)">
+                    <span class="mono" style="color:var(--ink4)">14:31:20</span><span>老服务器 · FTP</span><span class="badge dg" style="justify-self:start">代理不可达</span><span class="num">10.0 s</span><span style="color:var(--ink4)">127.0.0.1:7890</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="statusbar">
+              <span class="it"><i class="dot"></i>3 个挂载在线</span>
+              <span class="it">会话 <b>3</b></span>
+              <span class="right"><span>凭据存储：Windows Credential Manager</span><span>v1.0.0</span></span>
+            </div>
+          </div></div>
+          <p class="note" style="margin-top:12px">协议能力差异（如 FTP 无容量查询、WebDAV 无原子移动、SFTP 主机密钥）不隐藏，直接写在卡片底部的能力行——用户在这里学到的规则，会在文件页继续成立。</p>
+        </div>
+
+        <!-- W4 -->
+        <div class="art">
+          <div class="art-cap">
+            <span class="id">W4</span><b>添加挂载 · 三步向导</b>
+            <span class="tag2">以 S3 为例</span>
+            <span class="sp">步骤：选协议 → 填参数 → 测试并保存</span>
+          </div>
+          <div class="fitbox"><div class="fit board" data-w="1360" data-h="860" data-theme="light">
+            <div class="w-bar" style="opacity:.5">
+              <div class="w-logo"><div class="w-mark"><svg class="ico s14"><use href="#i-cloud"/></svg></div><b>Nimbo</b><span>v1.2</span></div>
+              <div class="w-search"><svg class="ico s14"><use href="#i-search"/></svg><span>搜索文件、路径或命令</span></div>
+              <div class="w-ctl"><span><svg class="ico s12"><use href="#i-min"/></svg></span><span><svg class="ico s12"><use href="#i-max"/></svg></span><span class="x"><svg class="ico s12"><use href="#i-close"/></svg></span></div>
+            </div>
+            <div style="flex:1;display:flex;opacity:.35">
+              <div style="width:236px;border-right:1px solid var(--line);background:var(--surface);padding:12px 9px">
+                <div style="height:50px;border-radius:12px;background:var(--card);border:1px solid var(--line)"></div>
+                <div style="height:34px;margin-top:8px;border-radius:9px;background:var(--chip-bg)"></div>
+                <div style="height:34px;margin-top:4px;border-radius:9px;background:transparent"></div>
+                <div style="height:34px;margin-top:4px;border-radius:9px;background:transparent"></div>
+                <div style="height:34px;margin-top:4px;border-radius:9px;background:transparent"></div>
+              </div>
+              <div style="flex:1;padding:20px 18px">
+                <div style="height:34px;width:220px;border-radius:9px;background:#DCE6F1"></div>
+                <div style="height:14px;width:340px;border-radius:6px;background:#E3EBF3;margin-top:10px"></div>
+                <div style="height:300px;margin-top:20px;border-radius:14px;background:var(--card);border:1px solid var(--line)"></div>
+              </div>
+            </div>
+
+            <div class="scrim">
+              <div class="modal">
+                <div class="m-hd">
+                  <div style="width:26px;height:26px;border-radius:8px;background:var(--grad);display:grid;place-items:center;color:#fff"><svg class="ico s14"><use href="#i-plus"/></svg></div>
+                  <b>添加挂载</b>
+                  <div class="m-steps">
+                    <span class="st done"><i><svg class="ico s12" style="width:9px;height:9px"><use href="#i-check"/></svg></i>选协议</span>
+                    <em></em>
+                    <span class="st on"><i>2</i>连接参数</span>
+                    <em></em>
+                    <span class="st"><i>3</i>测试并保存</span>
+                  </div>
+                  <div class="ibtn"><svg class="ico s14"><use href="#i-close"/></svg></div>
+                </div>
+                <div class="m-bd">
+                  <div class="proto-grid">
+                    <div class="proto"><div class="row"><span class="pv ftp">FTP</span></div><span>明文 · 端口 21</span><span class="ph2">被动模式</span></div>
+                    <div class="proto"><div class="row"><span class="pv sftp">SFTP</span></div><span>SSH2 · 端口 22</span><span class="ph2">密钥 / 密码</span></div>
+                    <div class="proto on"><div class="row"><span class="pv s3">S3</span><span class="ck"><svg class="ico s14"><use href="#i-check"/></svg></span></div><span>兼容对象存储</span><span class="ph2">SigV4 · 分片</span></div>
+                    <div class="proto"><div class="row"><span class="pv loc">LOCAL</span></div><span>本机 / 映射盘</span><span class="ph2">无网络层</span></div>
+                    <div class="proto"><div class="row"><span class="pv dav">WebDAV</span></div><span>HTTP · 443</span><span class="ph2">坚果云 / Nextcloud</span></div>
+                  </div>
+                  <div class="flds">
+                    <div class="fld"><label>显示名称</label><div class="in">对象存储-备份</div><div class="hint">同名会提示，但允许重复地址</div></div>
+                    <div class="fld"><label>Endpoint</label><div class="in">oss-cn-hangzhou.aliyuncs.com</div><div class="hint">不含协议头，自动尝试 HTTPS</div></div>
+                    <div class="fld"><label>区域 Region</label><div class="in">cn-hangzhou</div></div>
+                    <div class="fld"><label>Bucket</label><div class="in">nimbo-backup</div></div>
+                    <div class="fld"><label>Access Key ID</label><div class="in">LTAI5tQ••••••••7Xk2</div></div>
+                    <div class="fld"><label>Secret Access Key</label><div class="in">••••••••••••••••••••<span class="tail"><svg class="ico s14"><use href="#i-eye"/></svg></span></div><div class="hint">写入系统安全存储，不落配置文件</div></div>
+                    <div class="fld"><label>根路径（可选）</label><div class="in ph">/media</div></div>
+                    <div class="fld"><label>寻址风格</label><div class="in">虚拟主机风格<span class="tail">path-style 关</span></div></div>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:14px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--surface)">
+                    <span style="display:flex;align-items:center;gap:7px;font-size:10.5px;font-weight:700"><i class="tg on"></i>只读挂载</span>
+                    <span style="display:flex;align-items:center;gap:7px;font-size:10.5px;font-weight:700"><i class="tg on"></i>独立代理 <span style="font-family:var(--mono);font-size:9px;color:var(--ink3);font-weight:600">HTTP 127.0.0.1:7890</span></span>
+                    <span style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--ink3);font-weight:600;margin-left:auto">并发 <b style="color:var(--ink)">4</b> · 分片 8 MB · 超时 30s</span>
+                    <span class="btn gho" style="height:24px;font-size:10px">高级</span>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:8px;padding:8px 11px;border-radius:9px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.22);font-size:10.5px;font-weight:700;color:#137A4B">
+                    <svg class="ico s14"><use href="#i-check"/></svg>连接测试通过 · TLS 1.3 · 握手 48 ms · 可写 · 分片上传可用
+                    <span style="margin-left:auto;font-weight:600;color:#0B7A63">重新测试</span>
+                  </div>
+                </div>
+                <div class="m-foot">
+                  <span class="note"><svg class="ico s12"><use href="#i-shield"/></svg>凭据仅存本机安全存储，导出配置时不包含</span>
+                  <span class="btn gho">取消</span>
+                  <span class="btn sec"><svg class="ico s14"><use href="#i-bolt"/></svg>测试连接</span>
+                  <span class="btn pri"><svg class="ico s14"><use href="#i-check"/></svg>保存并挂载</span>
+                </div>
+              </div>
+            </div>
+          </div></div>
+          <div class="legend" style="margin-top:14px">
+            <div class="lg"><b>1</b><span><b>协议先行。</b>先选协议再出表单，字段随协议整体替换，不做「全部字段 + 灰掉无关项」。</span></div>
+            <div class="lg"><b>2</b><span><b>测试即反馈。</b>测试结果内联在表单底部，包含握手耗时、可写性、能力探测。</span></div>
+            <div class="lg"><b>3</b><span><b>默认安全。</b>S3 只接受 HTTPS；明文 FTP 需二次确认；密钥只进系统凭据库。</span></div>
+            <div class="lg"><b>4</b><span><b>可退出。</b>向导任意步骤可取消，已填内容保留为草稿，下次继续。</span></div>
+          </div>
+        </div>
+
+        <!-- 交互细节 -->
+        <div class="art">
+          <div class="art-cap"><span class="id">W5</span><b>三个高频交互的 1:1 细节</b><span class="sp">右键菜单 · 拖拽上传 · 命令面板</span></div>
+          <div class="fitbox"><div class="fit board stage" data-w="1120" data-h="330" data-theme="light" style="width:1120px;height:auto;flex-direction:row;padding:18px;gap:16px;align-items:flex-start">
+            <div class="panel">
+              <div class="ph">右键 · 文件</div>
+              <div style="padding:4px 0">
+                <div class="menu-i hv"><svg class="ico s14"><use href="#i-eye"/></svg>打开 / 预览<span class="k">Enter</span></div>
+                <div class="menu-i"><svg class="ico s14"><use href="#i-download"/></svg>下载<span class="k">Ctrl D</span></div>
+                <div class="menu-sep"></div>
+                <div class="menu-i"><svg class="ico s14"><use href="#i-pencil"/></svg>重命名<span class="k">F2</span></div>
+                <div class="menu-i"><svg class="ico s14"><use href="#i-move"/></svg>移动到…</div>
+                <div class="menu-i"><svg class="ico s14"><use href="#i-copy"/></svg>复制到…</div>
+                <div class="menu-i"><svg class="ico s14"><use href="#i-link"/></svg>复制直链<span class="k">Ctrl L</span></div>
+                <div class="menu-sep"></div>
+                <div class="menu-i dg"><svg class="ico s14"><use href="#i-trash"/></svg>删除<span class="k">Del</span></div>
+              </div>
+            </div>
+            <div class="panel" style="flex:1;min-width:300px">
+              <div class="ph">拖拽上传 · 落点高亮</div>
+              <div style="padding:10px">
+                <div class="drop">
+                  <svg class="ico s24" style="color:#0EA5E9"><use href="#i-cloud"/></svg>
+                  <b>松开以上传到「影视」</b>
+                  <span>3 个文件 · 2.1 GB · SFTP 写入 8.6 MB/s</span>
+                  <span style="font-size:9px;font-weight:700;color:#0A6E93;background:rgba(10,147,196,.1);padding:2px 7px;border-radius:5px">按住 Shift 可改为移动</span>
+                </div>
+              </div>
+            </div>
+            <div class="panel" style="flex:1;min-width:300px">
+              <div class="ph">命令面板 · Ctrl K</div>
+              <div class="cmdk">
+                <div class="inp"><svg class="ico s14"><use href="#i-search"/></svg><span style="color:var(--ink)">dav</span><span style="width:1px;height:14px;background:var(--sky6)"></span><span style="margin-left:auto;font-size:9px;color:var(--ink4)">Esc 关闭</span></div>
+                <div class="grp">挂载</div>
+                <div class="ri hv"><span class="pv dav">DAV</span>团队 WebDAV<span class="k">↵</span></div>
+                <div class="grp">命令</div>
+                <div class="ri"><svg class="ico s14"><use href="#i-refresh"/></svg>重新连接全部挂载<span class="k">⌘R</span></div>
+                <div class="ri"><svg class="ico s14"><use href="#i-sliders"/></svg>打开限速设置<span class="k">⌘,</span></div>
+              </div>
+            </div>
+          </div></div>
+        </div>
+      </section>
+
+      <!-- ================= 03 Android ================= -->
+      <section class="sec" id="s3">
+        <style>
+          .ph-grid{display:grid;grid-template-columns:1fr 1fr;gap:38px 26px;margin-top:22px}
+          .ph-item{display:flex;flex-direction:column;align-items:center;min-width:0}
+          .ph-cap{display:flex;align-items:center;gap:9px;margin-bottom:10px;width:100%;font-size:11.5px;color:var(--dink3);flex-wrap:wrap}
+          .ph-cap b{font-size:12.5px;color:var(--dink);font-weight:800}
+          .ph-cap .id{font-family:var(--mono);font-size:9.5px;font-weight:800;color:var(--sky7);background:#E6F6FE;border:1px solid #CFEAFB;padding:2px 6px;border-radius:5px}
+          .ph-note{font-size:11px;color:var(--dink3);line-height:1.65;margin:12px 0 0;max-width:400px}
+          .p-proto-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+          .p-proto{border:1.5px solid var(--field-border);border-radius:11px;padding:9px;background:var(--field-bg);display:flex;flex-direction:column;gap:4px}
+          .p-proto.on{border-color:var(--sky6);background:rgba(56,189,248,.07);box-shadow:0 0 0 3px rgba(56,189,248,.1)}
+          .p-proto b{font-size:11.5px;font-weight:800}
+.p-proto .pv{align-self:flex-start;font-size:9.5px;padding:2px 7px}
+          .p-proto span{font-size:8.5px;color:var(--ink3);font-weight:600}
+          .p-fld{display:flex;flex-direction:column;gap:4px;margin-bottom:9px}
+          .p-fld label{font-size:9px;font-weight:800;letter-spacing:.4px;color:var(--ink3)}
+          .p-fld .in{height:34px;border:1px solid var(--field-border);border-radius:9px;background:var(--field-bg);display:flex;align-items:center;padding:0 10px;font-size:12px;font-weight:600;color:var(--ink)}
+          .p-fld .in.ph{color:var(--ink3);font-weight:500}
+          .p-fld .in .tail{margin-left:auto;color:var(--ink4);display:flex;align-items:center}
+          .p-acts{height:70px;flex:none;border-top:1px solid var(--line);display:flex;align-items:center;gap:4px;padding:0 10px;background:var(--card)}
+          .p-act{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:9px;font-weight:700;color:var(--ink2)}
+          .p-act.dg{color:#B3203B}
+          .p-selbar{height:50px;flex:none;display:flex;align-items:center;padding:0 18px;background:var(--card);border-bottom:1px solid var(--line)}
+          .p-sheet{flex:1;min-height:0;background:var(--card);border-radius:20px 20px 0 0;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 -8px 20px -12px rgba(13,27,42,.18)}
+          .p-task{padding:12px 18px;border-bottom:1px solid var(--hair)}
+          .p-task .r1{display:flex;align-items:center;gap:10px}
+          .p-task .r1 b{font-size:12px;font-weight:700;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+          .p-task .r1 .s{font-size:9.5px;color:var(--ink3);font-weight:600;margin-top:1px}
+        </style>
+
+        <div class="sec-h">
+          <div><div class="eyebrow">Android · 390 × 844</div><h2>移动端：底部 Tab + 长按多选</h2></div>
+          <p>一行只讲一件事；行高 66，触控目标 ≥ 44，所有危险操作二次确认。</p>
+        </div>
+        <p class="note">移动端不做侧栏、不做常驻详情：详情改为点击行后的底部面板，传输改为独立 Tab。层级压缩到「Tab → 目录 → 文件」，返回键始终有明确落点。<b>与桌面端共用同一套 token 与组件</b>，仅行高、字号与触控尺寸不同。</p>
+
+        <div class="grid4" style="margin-top:18px">
+          <div class="card" style="padding:16px">
+            <div class="mini-cap">尺寸锚点</div>
+            <table class="spec">
+              <tr><td>状态栏</td><td class="mono">42</td></tr>
+              <tr><td>顶部栏</td><td class="mono">48</td></tr>
+              <tr><td>底部 Tab</td><td class="mono">64</td></tr>
+              <tr><td>列表行</td><td class="mono">66</td></tr>
+              <tr><td>页面边距</td><td class="mono">18</td></tr>
+            </table>
+          </div>
+          <div class="card" style="padding:16px">
+            <div class="mini-cap">手势</div>
+            <table class="spec">
+              <tr><td>点击行</td><td>打开 / 预览</td></tr>
+              <tr><td>长按行</td><td>进入多选</td></tr>
+              <tr><td>下拉</td><td>刷新目录</td></tr>
+              <tr><td>左滑行</td><td>不做（避免冲突）</td></tr>
+              <tr><td>双击标题</td><td>回根目录</td></tr>
+            </table>
+          </div>
+          <div class="card" style="padding:16px">
+            <div class="mini-cap">安全区</div>
+            <p class="note" style="font-size:11px;margin:0">底栏与 FAB 自动避开手势条；键盘弹出时表单整体上推，主按钮吸附在键盘上方。</p>
+            <div class="mini-cap" style="margin-top:12px">字号</div>
+            <p class="note" style="font-size:11px;margin:0">设计稿字号 ×1.30，正文实际渲染约 15px；仍受系统无障碍字号影响。</p>
+          </div>
+          <div class="card" style="padding:16px">
+            <div class="mini-cap">与桌面端差异</div>
+            <p class="note" style="font-size:11px;margin:0">详情：第三栏 → 底部面板<br>传输：抽屉 → 独立 Tab<br>多选：Ctrl 点选 → 长按<br>搜索：内联框 → 全屏页</p>
+          </div>
+        </div>
+
+        <div class="ph-grid">
+
+          <!-- A1 -->
+          <div class="ph-item">
+            <div class="ph-cap"><span class="id">A1</span><b>文件浏览</b><span>主界面 · 默认 Tab</span></div>
+            <div class="fitbox"><div class="fit pf" data-w="414" data-h="868" data-theme="light">
+              <div class="board ph">
+                <div class="p-status">9:41<span class="r"><svg class="ico s12"><use href="#i-wifi"/></svg><span class="bat"></span></span></div>
+                <div class="p-bar">
+                  <div class="p-sw">
+                    <div class="av">NAS</div>
+                    <div style="min-width:0"><b>家庭 NAS</b><div class="cs"><i class="dot"></i>SFTP · 12 ms</div></div>
+                    <svg class="ico s12" style="color:var(--ink4)"><use href="#i-chevd"/></svg>
+                  </div>
+                  <div class="p-icons">
+                    <div class="ibtn"><svg class="ico s18"><use href="#i-search"/></svg></div>
+                    <div class="ibtn"><svg class="ico s18"><use href="#i-morev"/></svg></div>
+                  </div>
+                </div>
+                <div class="p-crumbs">
+                  <span class="c">media</span><svg class="ico s12"><use href="#i-chevr"/></svg>
+                  <span class="c cur">影视</span>
+                  <span style="margin-left:auto;font-size:10px;color:var(--ink4)">1,204 项</span>
+                </div>
+                <div class="p-head">
+                  <div><h4>影视</h4><div class="sub">12 项 · 512.4 GB</div></div>
+                  <div class="acts">
+                    <div class="ibtn"><svg class="ico s18"><use href="#i-sort"/></svg></div>
+                    <div class="ibtn"><svg class="ico s18"><use href="#i-grid"/></svg></div>
+                  </div>
+                </div>
+                <div class="p-filters">
+                  <span class="chip on">全部</span><span class="chip">视频</span><span class="chip">图片</span><span class="chip">文档</span><span class="chip">其他</span>
+                </div>
+                <div class="p-list">
+                  <div class="p-row">
+                    <div class="tile"><svg class="ico s18"><use href="#i-folder"/></svg></div>
+                    <div class="tx"><b>沙丘2 (4K 原盘)</b><span>12 项 · 10-21 22:14</span></div>
+                    <div class="tr-a"><svg class="ico s18"><use href="#i-morev"/></svg></div>
+                  </div>
+                  <div class="p-row">
+                    <div class="tile"><svg class="ico s18"><use href="#i-folder"/></svg></div>
+                    <div class="tx"><b>蓝色星球 S01</b><span>8 项 · 10-19 18:02</span></div>
+                    <div class="tr-a"><svg class="ico s18"><use href="#i-morev"/></svg></div>
+                  </div>
+                  <div class="p-row">
+                    <div class="tile video"><svg class="ico s18"><use href="#i-video"/></svg></div>
+                    <div class="tx"><b>沙丘2.2024.2160p.HDR.mkv</b><span>18.4 GB · 下载中 62%</span></div>
+                    <div class="tr-a"><svg class="ico s18"><use href="#i-morev"/></svg></div>
+                  </div>
+                  <div class="p-row">
+                    <div class="tile video"><svg class="ico s18"><use href="#i-video"/></svg></div>
+                    <div class="tx"><b>蓝色星球.S01E03.2160p.mkv</b><span>2.1 GB · 10-19 18:20</span></div>
+                    <div class="tr-a"><svg class="ico s18"><use href="#i-morev"/></svg></div>
+                  </div>
+                  <div class="p-row">
+                    <div class="tile video"><svg class="ico s18"><use href="#i-video"/></svg></div>
+                    <div class="tx"><b>星际穿越.2014.1080p.mp4</b><span>4.8 GB · 10-18 21:10</span></div>
+                    <div class="tr-a"><svg class="ico s18"><use href="#i-morev"/></svg></div>
+                  </div>
+                  <div class="p-row">
+                    <div class="tile image"><svg class="ico s18"><use href="#i-image"/></svg></div>
+                    <div class="tx"><b>海报-终稿.png</b><span>12.8 MB · 10-22 09:14</span></div>
+                    <div class="tr-a"><svg class="ico s18"><use href="#i-morev"/></svg></div>
+                  </div>
+                  <div class="p-row">
+                    <div class="tile docf"><svg class="ico s18"><use href="#i-doc"/></svg></div>
+                    <div class="tx"><b>季度报告-Q3.pdf</b><span>3.4 MB · 10-20 14:22</span></div>
+                    <div class="tr-a"><svg class="ico s18"><use href="#i-morev"/></svg></div>
+                  </div>
+                  <div class="p-row">
+                    <div class="tile audio"><svg class="ico s18"><use href="#i-audio"/></svg></div>
+                    <div class="tx"><b>播客-第42期.mp3</b><span>58.2 MB · 10-15 20:40</span></div>
+                    <div class="tr-a"><svg class="ico s18"><use href="#i-morev"/></svg></div>
+                  </div>
+                  <div class="p-row">
+                    <div class="tile zip"><svg class="ico s18"><use href="#i-archive"/></svg></div>
+                    <div class="tx"><b>字幕打包.zip</b><span>214 MB · 10-12 16:55</span></div>
+                    <div class="tr-a"><svg class="ico s18"><use href="#i-morev"/></svg></div>
+                  </div>
+                </div>
+                <div class="p-fab"><svg class="ico s18"><use href="#i-upload"/></svg>上传</div>
+                <div class="p-nav">
+                  <div class="n on"><svg class="ico s18"><use href="#i-folder"/></svg>文件</div>
+                  <div class="n"><span class="badge">2</span><svg class="ico s18"><use href="#i-transfer"/></svg>传输</div>
+                  <div class="n"><svg class="ico s18"><use href="#i-star"/></svg>收藏</div>
+                  <div class="n"><svg class="ico s18"><use href="#i-sliders"/></svg>我的</div>
+                </div>
+                <div class="p-home"><i></i></div>
+                <span class="pin" style="left:212px;top:42px">1<span class="tip">挂载切换器：点开即换根</span></span>
+                <span class="pin" style="left:243px;top:700px">2<span class="tip">FAB 带文字，明确「上传」而非「+」</span></span>
+                <span class="pin" style="left:172px;top:812px">3<span class="tip">传输未读数常驻底栏</span></span>
+              </div>
+            </div></div>
+            <p class="ph-note">顶部三行信息按「存储 → 路径 → 目录」自上而下排列，和读文件路径的习惯一致。FAB 只在文件页出现，滚动时向下隐藏、向上出现。</p>
+          </div>
+
+          <!-- A2 -->
+          <div class="ph-item">
+            <div class="ph-cap"><span class="id">A2</span><b>批量选择模式</b><span>长按行进入</span></div>
+            <div class="fitbox"><div class="fit pf" data-w="414" data-h="868" data-theme="light">
+              <div class="board ph">
+                <div class="p-status">9:42<span class="r"><svg class="ico s12"><use href="#i-wifi"/></svg><span class="bat"></span></span></div>
+                <div class="p-selbar">
+                  <span style="font-size:11.5px;font-weight:700;color:var(--sky7)">取消</span>
+                  <b style="font-size:13px;font-weight:800;margin:0 auto">已选 3 项 · 22.5 GB</b>
+                  <span style="font-size:11.5px;font-weight:700;color:var(--ink2)">全选</span>
+                </div>
+                <div style="padding:8px 18px;font-size:9.5px;font-weight:600;color:var(--ink3);background:var(--chip-bg);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px">
+                  <svg class="ico s12"><use href="#i-info"/></svg>再点一次可取消选择 · 文件夹暂不支持批量下载
+                </div>
+                <div class="p-list" style="border-top:none">
+                  <div class="p-row sel">
+                    <span class="cb on" style="width:18px;height:18px"><svg class="ico s14" style="width:11px;height:11px"><use href="#i-check"/></svg></span>
+                    <div class="tile"><svg class="ico s18"><use href="#i-folder"/></svg></div>
+                    <div class="tx"><b>沙丘2 (4K 原盘)</b><span>12 项 · 10-21 22:14</span></div>
+                  </div>
+                  <div class="p-row">
+                    <span class="cb" style="width:18px;height:18px"></span>
+                    <div class="tile"><svg class="ico s18"><use href="#i-folder"/></svg></div>
+                    <div class="tx"><b>蓝色星球 S01</b><span>8 项 · 10-19 18:02</span></div>
+                  </div>
+                  <div class="p-row sel">
+                    <span class="cb on" style="width:18px;height:18px"><svg class="ico s14" style="width:11px;height:11px"><use href="#i-check"/></svg></span>
+                    <div class="tile video"><svg class="ico s18"><use href="#i-video"/></svg></div>
+                    <div class="tx"><b>沙丘2.2024.2160p.HDR.mkv</b><span>18.4 GB · 10-21 22:31</span></div>
+                  </div>
+                  <div class="p-row">
+                    <span class="cb" style="width:18px;height:18px"></span>
+                    <div class="tile video"><svg class="ico s18"><use href="#i-video"/></svg></div>
+                    <div class="tx"><b>蓝色星球.S01E03.2160p.mkv</b><span>2.1 GB · 10-19 18:20</span></div>
+                  </div>
+                  <div class="p-row sel">
+                    <span class="cb on" style="width:18px;height:18px"><svg class="ico s14" style="width:11px;height:11px"><use href="#i-check"/></svg></span>
+                    <div class="tile image"><svg class="ico s18"><use href="#i-image"/></svg></div>
+                    <div class="tx"><b>海报-终稿.png</b><span>12.8 MB · 10-22 09:14</span></div>
+                  </div>
+                  <div class="p-row">
+                    <span class="cb" style="width:18px;height:18px"></span>
+                    <div class="tile docf"><svg class="ico s18"><use href="#i-doc"/></svg></div>
+                    <div class="tx"><b>季度报告-Q3.pdf</b><span>3.4 MB · 10-20 14:22</span></div>
+                  </div>
+                  <div class="p-row">
+                    <span class="cb" style="width:18px;height:18px"></span>
+                    <div class="tile audio"><svg class="ico s18"><use href="#i-audio"/></svg></div>
+                    <div class="tx"><b>播客-第42期.mp3</b><span>58.2 MB · 10-15 20:40</span></div>
+                  </div>
+                  <div class="p-row">
+                    <span class="cb" style="width:18px;height:18px"></span>
+                    <div class="tile zip"><svg class="ico s18"><use href="#i-archive"/></svg></div>
+                    <div class="tx"><b>字幕打包.zip</b><span>214 MB · 10-12 16:55</span></div>
+                  </div>
+                  <div class="p-row">
+                    <span class="cb" style="width:18px;height:18px"></span>
+                    <div class="tile zip"><svg class="ico s18"><use href="#i-archive"/></svg></div>
+                    <div class="tx"><b>dataset.tar.zst</b><span>6.8 GB · 10-08 03:12</span></div>
+                  </div>
+                  <div class="p-row">
+                    <span class="cb" style="width:18px;height:18px"></span>
+                    <div class="tile image"><svg class="ico s18"><use href="#i-image"/></svg></div>
+                    <div class="tx"><b>IMG_4821.HEIC</b><span>4.2 MB · 10-07 12:31</span></div>
+                  </div>
+                </div>
+                <div class="p-acts">
+                  <div class="p-act" style="color:#0A6E93"><svg class="ico s18"><use href="#i-download"/></svg>下载</div>
+                  <div class="p-act"><svg class="ico s18"><use href="#i-move"/></svg>移动</div>
+                  <div class="p-act"><svg class="ico s18"><use href="#i-copy"/></svg>复制</div>
+                  <div class="p-act dg"><svg class="ico s18"><use href="#i-trash"/></svg>删除</div>
+                  <div class="p-act"><svg class="ico s18"><use href="#i-morev"/></svg>更多</div>
+                </div>
+                <div class="p-home"><i></i></div>
+              </div>
+            </div></div>
+            <p class="ph-note">多选时底栏 Tab 整体替换为操作栏，避免「切走丢失选择」；标题区实时汇总数量与体积，删除等危险操作走确认弹窗，确认文案带具体数量。</p>
+          </div>
+
+          <!-- A3 -->
+          <div class="ph-item">
+            <div class="ph-cap"><span class="id">A3</span><b>传输</b><span>独立 Tab · 含暂停/失败</span></div>
+            <div class="fitbox"><div class="fit pf" data-w="414" data-h="868" data-theme="light">
+              <div class="board ph">
+                <div class="p-status">9:44<span class="r"><svg class="ico s12"><use href="#i-wifi"/></svg><span class="bat"></span></span></div>
+                <div class="p-head" style="padding-top:2px">
+                  <div><h4>传输</h4><div class="sub">2 进行中 · 1 失败</div></div>
+                  <div class="acts">
+                    <div class="ibtn"><svg class="ico s18"><use href="#i-pause"/></svg></div>
+                    <div class="ibtn"><svg class="ico s18"><use href="#i-sliders"/></svg></div>
+                  </div>
+                </div>
+                <div style="margin:0 18px 10px;display:flex;padding:2px;border-radius:9px;background:var(--chip-bg);border:1px solid var(--chip-border)">
+                  <span style="flex:1;height:26px;display:grid;place-items:center;font-size:10.5px;font-weight:700;border-radius:7px;background:var(--card);box-shadow:0 1px 3px rgba(13,27,42,.12)">全部</span>
+                  <span style="flex:1;height:26px;display:grid;place-items:center;font-size:10.5px;font-weight:700;color:var(--ink3)">下载 3</span>
+                  <span style="flex:1;height:26px;display:grid;place-items:center;font-size:10.5px;font-weight:700;color:var(--ink3)">上传 1</span>
+                </div>
+                <div style="margin:0 18px 12px;border:1px solid var(--line);border-radius:14px;padding:11px 14px;background:var(--card);display:flex;gap:16px;align-items:center;box-shadow:var(--shadow-card)">
+                  <div>
+                    <div style="font-size:9px;font-weight:800;letter-spacing:.8px;color:var(--ink4)">DOWNLINK</div>
+                    <div style="font-size:20px;font-weight:800;letter-spacing:-.8px;font-variant-numeric:tabular-nums">8.6<span style="font-size:9.5px;font-weight:700;color:var(--ink3);margin-left:2px">MB/s</span></div>
+                  </div>
+                  <div style="width:1px;height:30px;background:var(--line)"></div>
+                  <div>
+                    <div style="font-size:9px;font-weight:800;letter-spacing:.8px;color:var(--ink4)">UPLINK</div>
+                    <div style="font-size:20px;font-weight:800;letter-spacing:-.8px;font-variant-numeric:tabular-nums">4.1<span style="font-size:9.5px;font-weight:700;color:var(--ink3);margin-left:2px">MB/s</span></div>
+                  </div>
+                  <div style="margin-left:auto;text-align:right">
+                    <div style="font-size:9px;font-weight:700;color:var(--ink4)">今日</div>
+                    <div style="font-size:12px;font-weight:800;font-variant-numeric:tabular-nums">42.8 GB</div>
+                  </div>
+                </div>
+                <div class="p-list">
+                  <div class="p-task">
+                    <div class="r1">
+                      <div class="tile" style="width:34px;height:34px;border-radius:10px;color:#38BDF8;background:rgba(56,189,248,.13)"><svg class="ico s18"><use href="#i-download"/></svg></div>
+                      <div style="flex:1;min-width:0"><b>沙丘2.2024.2160p.HDR.mkv</b><div class="s">12.4 / 18.4 GB · 8.6 MB/s</div></div>
+                      <span class="badge bl">62%</span>
+                    </div>
+                    <div class="bar" style="margin-top:8px;height:4px;border-radius:99px;background:var(--line2);overflow:hidden"><i style="display:block;height:100%;width:62%;background:var(--grad);border-radius:99px"></i></div>
+                  </div>
+                  <div class="p-task">
+                    <div class="r1">
+                      <div class="tile" style="width:34px;height:34px;border-radius:10px;color:#2DD4BF;background:rgba(45,212,191,.14)"><svg class="ico s18"><use href="#i-upload"/></svg></div>
+                      <div style="flex:1;min-width:0"><b>设计素材-终版.zip</b><div class="s">1.2 / 3.6 GB · 4.1 MB/s</div></div>
+                      <span class="badge vi">34%</span>
+                    </div>
+                    <div class="bar" style="margin-top:8px;height:4px;border-radius:99px;background:var(--line2);overflow:hidden"><i style="display:block;height:100%;width:34%;background:var(--grad);border-radius:99px"></i></div>
+                  </div>
+                  <div class="p-task">
+                    <div class="r1">
+                      <div class="tile" style="width:34px;height:34px;border-radius:10px;color:#E23D57;background:rgba(244,63,94,.12)"><svg class="ico s18"><use href="#i-info"/></svg></div>
+                      <div style="flex:1;min-width:0"><b>相机备份-2026.zip</b><div class="s" style="color:#B3203B">校验失败 · 已重试 2 / 3</div></div>
+                      <span class="btn sec" style="height:26px;font-size:9.5px;padding:0 9px">重试</span>
+                    </div>
+                  </div>
+                  <div class="p-task">
+                    <div class="r1">
+                      <div class="tile" style="width:34px;height:34px;border-radius:10px;color:#22C55E;background:rgba(34,197,94,.12)"><svg class="ico s18"><use href="#i-check"/></svg></div>
+                      <div style="flex:1;min-width:0"><b>蓝色星球.S01E03.2160p.mkv</b><div class="s">2.1 GB · 校验通过 · 4 分 12 秒</div></div>
+                      <span class="badge ok">完成</span>
+                    </div>
+                  </div>
+                  <div class="p-task">
+                    <div class="r1">
+                      <div class="tile" style="width:34px;height:34px;border-radius:10px;color:#F59E0B;background:rgba(245,158,11,.13)"><svg class="ico s18"><use href="#i-pause"/></svg></div>
+                      <div style="flex:1;min-width:0"><b>团队资料.7z</b><div class="s">842 MB / 4.6 GB · 手动暂停</div></div>
+                      <span class="badge wn">暂停</span>
+                    </div>
+                    <div class="bar" style="margin-top:8px;height:4px;border-radius:99px;background:var(--line2);overflow:hidden"><i style="display:block;height:100%;width:18%;background:linear-gradient(90deg,#F59E0B,#FBBF24);border-radius:99px"></i></div>
+                  </div>
+                  <div class="p-task">
+                    <div class="r1">
+                      <div class="tile" style="width:34px;height:34px;border-radius:10px;color:#22C55E;background:rgba(34,197,94,.12)"><svg class="ico s18"><use href="#i-check"/></svg></div>
+                      <div style="flex:1;min-width:0"><b>海报-终稿.png</b><div class="s">12.8 MB · 已保存到 S3</div></div>
+                      <span class="badge ok">完成</span>
+                    </div>
+                  </div>
+                  <div style="padding:14px 18px;display:flex;align-items:center;gap:7px;font-size:9.5px;font-weight:600;color:var(--ink4)">
+                    <svg class="ico s12"><use href="#i-info"/></svg>已完成任务保留 7 天
+                    <span style="margin-left:auto;font-weight:800;color:var(--sky7)">清理已完成 2 项</span>
+                  </div>
+                </div>
+                <div class="p-nav">
+                  <div class="n"><svg class="ico s18"><use href="#i-folder"/></svg>文件</div>
+                  <div class="n on"><span class="badge">2</span><svg class="ico s18"><use href="#i-transfer"/></svg>传输</div>
+                  <div class="n"><svg class="ico s18"><use href="#i-star"/></svg>收藏</div>
+                  <div class="n"><svg class="ico s18"><use href="#i-sliders"/></svg>我的</div>
+                </div>
+                <div class="p-home"><i></i></div>
+              </div>
+            </div></div>
+            <p class="ph-note">失败任务不进「已完成」，而是留在列表里带重试按钮；已完成项可一键清理。切到后台时传输由前台服务保持，通知栏同步进度。</p>
+          </div>
+
+          <!-- A4 -->
+          <div class="ph-item">
+            <div class="ph-cap"><span class="id">A4</span><b>添加挂载 · SFTP</b><span>全屏页 · 键盘友好</span></div>
+            <div class="fitbox"><div class="fit pf" data-w="414" data-h="868" data-theme="light">
+              <div class="board ph">
+                <div class="p-status">9:46<span class="r"><svg class="ico s12"><use href="#i-wifi"/></svg><span class="bat"></span></span></div>
+                <div style="display:flex;align-items:center;gap:10px;padding:2px 18px 12px">
+                  <div class="ibtn" style="border:1px solid var(--field-border);background:var(--card)"><svg class="ico s18"><use href="#i-chevl"/></svg></div>
+                  <b style="font-size:15px;font-weight:800;letter-spacing:-.3px">添加挂载</b>
+                  <span style="margin-left:auto;font-size:10px;font-weight:700;color:var(--ink3)">步骤 2 / 3</span>
+                </div>
+                <div class="p-sheet">
+                  <div style="padding:12px 18px 4px">
+                    <div style="display:flex;gap:3px;margin-bottom:12px">
+                      <span style="flex:1;height:3px;border-radius:99px;background:var(--sky6)"></span>
+                      <span style="flex:1;height:3px;border-radius:99px;background:var(--sky6)"></span>
+                      <span style="flex:1;height:3px;border-radius:99px;background:var(--line2)"></span>
+                    </div>
+                    <div class="p-proto-grid">
+                      <div class="p-proto"><span class="pv ftp">FTP</span><span>明文 · 21 · 被动模式</span></div>
+                      <div class="p-proto on"><span class="pv sftp">SFTP</span><span>SSH2 · 22 · 主机指纹</span></div>
+                      <div class="p-proto"><span class="pv s3">S3</span><span>对象存储 · 443 · SigV4</span></div>
+                      <div class="p-proto"><span class="pv dav">WebDAV</span><span>HTTPS · 443 · 群晖 / 坚果云</span></div>
+                      <div class="p-proto" style="grid-column:span 2"><span class="pv loc">LOCAL</span><span>本机目录 / 映射盘 · 无需账号与网络</span></div>
+                    </div>
+                  </div>
+                  <div style="padding:12px 18px 0;overflow:hidden">
+                    <div class="p-fld"><label>显示名称</label><div class="in">家庭 NAS</div></div>
+                    <div class="p-fld"><label>主机 / 根路径</label><div class="in">192.168.1.20<span class="tail">/media</span></div></div>
+                    <div style="display:flex;gap:9px">
+                      <div class="p-fld" style="flex:1"><label>用户名</label><div class="in">nas-user</div></div>
+                      <div class="p-fld" style="width:96px"><label>端口</label><div class="in">22</div></div>
+                    </div>
+                    <div class="p-fld"><label>密码</label><div class="in ph">••••••••<span class="tail"><svg class="ico s18"><use href="#i-eye"/></svg></span></div></div>
+                    <div class="p-fld"><label>主机指纹</label><div class="in">SHA256:9f3a…c21b<span class="tail">已固定</span></div></div>
+                    <div style="display:flex;align-items:center;gap:7px;font-size:9.5px;font-weight:600;color:#0B7A63;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:9px;padding:8px 10px;margin-bottom:9px">
+                      <svg class="ico s14"><use href="#i-check"/></svg>主机指纹已固定 · 2 分钟前连接成功 · statvfs 可用
+                    </div>
+                    <div style="display:flex;align-items:center;gap:9px;padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--surface);margin-bottom:10px">
+                      <i class="tg on"></i><span style="font-size:10.5px;font-weight:700">独立代理</span>
+                      <span style="font-family:var(--mono);font-size:9.5px;color:var(--ink3);font-weight:600">HTTP 192.168.1.9:7890</span>
+                      <span style="margin-left:auto;font-size:9.5px;font-weight:800;color:var(--sky7)">仅此挂载</span>
+                    </div>
+                    <div style="display:flex;gap:7px;align-items:flex-start;font-size:9.5px;color:var(--ink3);font-weight:600;line-height:1.6;padding:9px 10px;border:1px dashed var(--field-border);border-radius:9px">
+                      <svg class="ico s14" style="color:var(--sky6)"><use href="#i-shield"/></svg>
+                      <span>凭据仅写入 Android Keystore，不落配置文件；导出挂载配置时自动剔除密码。</span>
+                    </div>
+                  </div>
+                  <div style="margin-top:auto;padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:9px;background:var(--card)">
+                    <span class="btn sec" style="height:38px;flex:1"><svg class="ico s14"><use href="#i-bolt"/></svg>测试连接</span>
+                    <span class="btn pri" style="height:38px;flex:1.2">下一步<svg class="ico s14"><use href="#i-chevr"/></svg></span>
+                  </div>
+                </div>
+                <div class="p-home"><i></i></div>
+              </div>
+            </div></div>
+            <p class="ph-note">移动端表单字段收窄到必填 + 1 个高级项，其余进「高级」折叠；键盘弹出时主按钮吸附在键盘上方，不会遮挡输入框。</p>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ================= 04 交互方案 ================= -->
+      <section class="sec" id="s4">
+        <style>
+          pre.code{background:#0B1622;color:#D7E4EF;border-radius:14px;padding:16px 18px;font-family:var(--mono);font-size:11px;line-height:1.9;overflow:auto;margin:0;border:1px solid #16283A}
+          pre.code .kw{color:#7DD3FC}
+          pre.code .ty{color:#5EEAD4}
+          pre.code .cm{color:#5E7488}
+          pre.code .st{color:#FBBF24}
+          pre.code .fn{color:#C4B5FD}
+          .flow{display:flex;align-items:stretch;gap:6px;flex-wrap:wrap}
+          .fl{flex:1;min-width:96px;border:1px solid var(--dline);border-radius:11px;padding:9px 10px;background:#fff}
+          .fl b{display:block;font-size:11.5px;font-weight:800}
+          .fl span{font-size:9.5px;color:var(--dink3);font-weight:600;line-height:1.5;display:block;margin-top:1px}
+          .fl.ar{align-self:center;background:none;border:none;padding:0;flex:none;color:#B6C7D8}
+          .statecard{width:252px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card)}
+          .statecard .hd{height:26px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 9px;font-size:8.5px;font-weight:800;letter-spacing:1px;color:var(--ink4);background:var(--thead)}
+          .sk{display:flex;align-items:center;gap:7px}
+          .sk i{display:block;border-radius:3px;background:linear-gradient(90deg,#E9F0F7,#F5F9FC,#E9F0F7);background-size:200% 100%;animation:sh 1.6s linear infinite}
+          @keyframes sh{0%{background-position:0 0}100%{background-position:-200% 0}}
+          .kbd-table kbd{font-size:9.5px;padding:3px 6px}
+        </style>
+
+        <div class="sec-h">
+          <div><div class="eyebrow">Interaction</div><h2>交互方案</h2></div>
+          <p>键盘、手势、状态、冲突四件事定义清楚，剩下的界面才有确定性。</p>
+        </div>
+
+        <h3>桌面端键位</h3>
+        <div class="grid2">
+          <div class="tbl-wrap"><table class="spec kbd-table">
+            <tr><th style="width:130px">按键</th><th>行为</th></tr>
+            <tr><td><kbd>Ctrl</kbd> <kbd>K</kbd></td><td>命令面板：搜索文件 / 路径 / 执行命令</td></tr>
+            <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>移动行焦点，详情栏同步预览</td></tr>
+            <tr><td><kbd>Enter</kbd></td><td>打开文件夹 / 预览文件</td></tr>
+            <tr><td><kbd>Space</kbd></td><td>快速预览（不离开列表）</td></tr>
+            <tr><td><kbd>F2</kbd> / <kbd>Del</kbd></td><td>重命名 / 删除（删除需确认）</td></tr>
+            <tr><td><kbd>Ctrl</kbd> <kbd>A</kbd> / <kbd>Esc</kbd></td><td>全选 / 取消选择</td></tr>
+          </table></div>
+          <div class="tbl-wrap"><table class="spec kbd-table">
+            <tr><th style="width:130px">按键</th><th>行为</th></tr>
+            <tr><td><kbd>Alt</kbd> <kbd>↑</kbd></td><td>返回上一级目录</td></tr>
+            <tr><td><kbd>F5</kbd></td><td>刷新当前目录</td></tr>
+            <tr><td><kbd>Ctrl</kbd> <kbd>D</kbd> / <kbd>L</kbd></td><td>下载 / 复制直链</td></tr>
+            <tr><td><kbd>Ctrl</kbd> <kbd>N</kbd></td><td>新建文件夹</td></tr>
+            <tr><td><kbd>Ctrl</kbd> <kbd>1</kbd>…<kbd>5</kbd></td><td>切换第 N 个挂载</td></tr>
+            <tr><td><kbd>Ctrl</kbd> <kbd>,</kbd></td><td>设置</td></tr>
+          </table></div>
+        </div>
+        <p class="note" style="margin-top:10px">只有 <span class="mono">Ctrl K</span> 与 <span class="mono">F5</span> 出现在界面上，其余键位放在帮助浮层（<kbd>?</kbd>）与设置页，避免界面被快捷键提示塞满。</p>
+
+        <h3>移动端手势与选择</h3>
+        <div class="grid3">
+          <div class="card" style="padding:16px">
+            <div class="mini-cap">点击</div>
+            <p class="note" style="font-size:11.5px;margin:0">文件夹直接进入；文件打开预览。永远不弹「操作菜单」要求二次选择——想操作就长按。</p>
+          </div>
+          <div class="card" style="padding:16px">
+            <div class="mini-cap">长按</div>
+            <p class="note" style="font-size:11.5px;margin:0">立即进入多选并选中该行，伴随一次 10ms 的轻震动；此后点击行 = 切换选中，不再进入目录。</p>
+          </div>
+          <div class="card" style="padding:16px">
+            <div class="mini-cap">下拉 / 上滑</div>
+            <p class="note" style="font-size:11.5px;margin:0">下拉刷新（保留滚动位置）；上滑隐藏 FAB，下滑恢复。不做左右滑动手势，避免与系统返回冲突。</p>
+          </div>
+        </div>
+
+        <h3>四种页面状态</h3>
+        <p class="note">骨架屏延迟 400ms 出现，避免快网络下的闪烁；错误态必须给出原因与下一步动作，禁止只显示「加载失败」。</p>
+        <div class="fitbox"><div class="fit board stage" data-w="1120" data-h="215" data-theme="light" style="width:1120px;height:auto;flex-direction:row;padding:16px;gap:14px;align-items:flex-start">
+          <div class="statecard">
+            <div class="hd">LOADING · 骨架屏</div>
+            <div style="padding:10px 9px;display:flex;flex-direction:column;gap:11px">
+              <div class="sk"><i style="width:26px;height:26px;border-radius:8px;flex:none"></i><div style="flex:1"><i style="height:8px;width:70%"></i><i style="height:6px;width:40%;margin-top:5px"></i></div></div>
+              <div class="sk"><i style="width:26px;height:26px;border-radius:8px;flex:none"></i><div style="flex:1"><i style="height:8px;width:54%"></i><i style="height:6px;width:30%;margin-top:5px"></i></div></div>
+              <div class="sk"><i style="width:26px;height:26px;border-radius:8px;flex:none"></i><div style="flex:1"><i style="height:8px;width:62%"></i><i style="height:6px;width:36%;margin-top:5px"></i></div></div>
+              <div class="sk"><i style="width:26px;height:26px;border-radius:8px;flex:none"></i><div style="flex:1"><i style="height:8px;width:48%"></i><i style="height:6px;width:28%;margin-top:5px"></i></div></div>
+            </div>
+          </div>
+          <div class="statecard">
+            <div class="hd">EMPTY · 空目录</div>
+            <div style="padding:22px 12px;display:flex;flex-direction:column;align-items:center;gap:7px">
+              <div style="width:42px;height:42px;border-radius:50%;border:1.5px dashed var(--field-border);display:grid;place-items:center;color:var(--ink4)"><svg class="ico s18"><use href="#i-folder"/></svg></div>
+              <b style="font-size:11.5px;font-weight:800">这里还没有文件</b>
+              <span style="font-size:9.5px;color:var(--ink3);font-weight:600">拖拽文件到窗口，或点「上传」</span>
+              <span class="btn pri" style="height:26px;font-size:10px;margin-top:3px"><svg class="ico s12"><use href="#i-upload"/></svg>上传</span>
+            </div>
+          </div>
+          <div class="statecard">
+            <div class="hd">ERROR · 连接失败</div>
+            <div style="padding:14px 11px;display:flex;flex-direction:column;gap:7px">
+              <div style="display:flex;align-items:center;gap:7px"><span class="badge dg">不可达</span><span style="font-size:9px;color:var(--ink4);font-weight:600">10s 超时</span></div>
+              <b style="font-size:11.5px;font-weight:800;line-height:1.4">连不上 192.168.1.20:22</b>
+              <span style="font-size:9px;color:var(--ink3);font-weight:600;line-height:1.55;font-family:var(--mono)">请确认主机在线、端口开放，且 SSH 服务未限流</span>
+              <div style="display:flex;gap:6px;margin-top:2px">
+                <span class="btn sec" style="height:25px;font-size:9.5px">重试</span>
+                <span class="btn gho" style="height:25px;font-size:9.5px">编辑挂载</span>
+              </div>
+            </div>
+          </div>
+          <div class="statecard">
+            <div class="hd">OFFLINE · 读缓存</div>
+            <div style="padding:14px 11px;display:flex;flex-direction:column;gap:7px">
+              <div style="display:flex;align-items:center;gap:7px"><span class="badge wn">离线</span><span style="font-size:9px;color:var(--ink4);font-weight:600">缓存 248 MB</span></div>
+              <b style="font-size:11.5px;font-weight:800">正在显示本地缓存</b>
+              <span style="font-size:9px;color:var(--ink3);font-weight:600;line-height:1.55">目录树来自 2 小时前的快照，可浏览已缓存文件</span>
+              <div style="height:4px;border-radius:99px;background:var(--line2);overflow:hidden"><i style="display:block;height:100%;width:38%;background:linear-gradient(90deg,#F59E0B,#FBBF24)"></i></div>
+            </div>
+          </div>
+        </div></div>
+
+        <h3>传输状态机与冲突处理</h3>
+        <div class="card">
+          <div class="flow">
+            <div class="fl"><b>排队</b><span>等待并发槽位</span></div>
+            <div class="fl ar"><svg class="ico s14"><use href="#i-chevr"/></svg></div>
+            <div class="fl"><b>连接</b><span>建会话 / 探测 Range</span></div>
+            <div class="fl ar"><svg class="ico s14"><use href="#i-chevr"/></svg></div>
+            <div class="fl" style="border-color:#BAE6FD;background:#F3FAFF"><b>传输</b><span>分片 / 多连接 / 限速</span></div>
+            <div class="fl ar"><svg class="ico s14"><use href="#i-chevr"/></svg></div>
+            <div class="fl"><b>校验</b><span>大小 + 可选 SHA256</span></div>
+            <div class="fl ar"><svg class="ico s14"><use href="#i-chevr"/></svg></div>
+            <div class="fl" style="border-color:#BBF7D0;background:#F2FDF6"><b>完成</b><span>写缓存索引</span></div>
+          </div>
+          <div class="flow" style="margin-top:10px">
+            <div class="fl" style="background:#FFFBEB;border-color:#FDE68A"><b>暂停</b><span>保留偏移量，可续传</span></div>
+            <div class="fl ar"><svg class="ico s14"><use href="#i-chevr"/></svg></div>
+            <div class="fl" style="background:#FFF1F3;border-color:#F8C9D2"><b>失败</b><span>网络 / 认证 / 校验 / 磁盘满</span></div>
+            <div class="fl ar"><svg class="ico s14"><use href="#i-chevr"/></svg></div>
+            <div class="fl"><b>重试</b><span>指数退避 3 次，逐次提示</span></div>
+            <div class="fl ar"><svg class="ico s14"><use href="#i-chevr"/></svg></div>
+            <div class="fl"><b>放弃</b><span>保留 .part 与断点</span></div>
+            <div style="flex:2;min-width:200px;border:1px dashed var(--dline);border-radius:11px;padding:9px 10px;background:#FCFDFF">
+              <b style="font-size:10.5px;font-weight:800;color:#41546A">原则</b>
+              <span style="font-size:9.5px;color:var(--dline);color:#7C8FA3;font-weight:600;line-height:1.5;display:block">任何中断都不丢进度；重启应用后任务从持久化队列恢复。</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid2" style="margin-top:16px">
+          <div class="tbl-wrap"><table class="spec">
+            <tr><th style="width:130px">同名冲突</th><th>行为</th></tr>
+            <tr><td><b>询问（默认）</b></td><td>逐个弹窗，可勾选「对全部应用」</td></tr>
+            <tr><td><b>覆盖</b></td><td>先写临时文件，成功后再替换，失败不损坏原文件</td></tr>
+            <tr><td><b>跳过</b></td><td>按名称 + 大小 + 修改时间判定相同则跳过</td></tr>
+            <tr><td><b>保留两者</b></td><td>自动重命名为 <span class="mono">name (1).ext</span>，冲突检测循环到可用名</td></tr>
+          </table></div>
+          <div class="card">
+            <div class="mini-cap">错误文案模板（禁止只说「操作失败」）</div>
+            <div style="display:flex;flex-direction:column;gap:8px;font-size:11px;line-height:1.55">
+              <div><span class="badge dg">认证</span> <span style="color:#41546A">凭据被拒绝。SFTP 请确认用户名与私钥口令，WebDAV 请确认路径权限。</span></div>
+              <div><span class="badge wn">权限</span> <span style="color:#41546A">该目录为只读挂载，无法写入。可在挂载设置中查看能力。</span></div>
+              <div><span class="badge bl">网络</span> <span style="color:#41546A">传输中断（已传 62%）。网络恢复后将从断点继续。</span></div>
+              <div><span class="badge">不支持</span> <span style="color:#41546A">该协议不支持服务端复制，将改为「下载后上传」，预计更慢。</span></div>
+              <div><span class="badge bl">代理</span> <span style="color:#41546A">无法通过 127.0.0.1:7890 建立隧道。该挂载的代理可能已关闭，可切回直连重试。</span></div>
+            </div>
+          </div>
+        </div>
+
+        <h3>动效与反馈层级</h3>
+        <div class="grid3">
+          <div class="card" style="padding:16px">
+            <div class="mini-cap">时长</div>
+            <p class="note" style="font-size:11.5px;margin:0">悬停 120ms / 面板进出 200ms / 路由切换 240ms / 抽屉展开 260ms。统一 <span class="mono">easeOutCubic</span>，不做回弹。</p>
+          </div>
+          <div class="card" style="padding:16px">
+            <div class="mini-cap">反馈层级</div>
+            <p class="note" style="font-size:11.5px;margin:0">可恢复错误用行内提示；操作成功用 toast（2.4s，不阻塞）；只有不可逆操作才用弹窗。同一时刻最多一个 toast。</p>
+          </div>
+          <div class="card" style="padding:16px">
+            <div class="mini-cap">无障碍与减弱动效</div>
+            <p class="note" style="font-size:11.5px;margin:0">跟随系统「减弱动态效果」关闭位移与淡入；所有图标按钮有语义标签；焦点环 2px 天空青，键盘可达每一条操作。</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= 05 协议接入 ================= -->
+      <section class="sec" id="s5">
+        <div class="sec-h">
+          <div><div class="eyebrow">Protocol Matrix</div><h2>五类存储接入方案</h2></div>
+          <p>同一套文件模型，五个驱动；SMB 已由「映射盘 + WebDAV / SFTP」替代。</p>
+        </div>
+
+        <div class="card" style="margin-bottom:18px;border-color:#CFEAFB;background:linear-gradient(120deg,#F7FBFF,#F3FDFB);padding:18px 20px">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span class="badge bl">v1.1</span>
+            <b style="font-size:13px;font-weight:800;letter-spacing:-.2px">移除 SMB，第五类存储改为「本地与映射盘」</b>
+            <span style="margin-left:auto;font-size:10px;font-weight:700;color:#7C8FA3">v1.2：单一浅色主题 · 代理按挂载独立</span>
+          </div>
+          <div class="grid3" style="margin-top:14px;gap:16px">
+            <div>
+              <div class="mini-cap">移除与不做的范围</div>
+              <p class="note" style="font-size:11px;margin:0">不做 SMB / CIFS 实现，自研 SMB2/3 与 FFI 绑定 libsmb2 两条路线一并放弃；本版也不做 NFS 与各家网盘的 OAuth 授权，后续按需增补。</p>
+            </div>
+            <div>
+              <div class="mini-cap">SMB 场景的三条替代路径</div>
+              <p class="note" style="font-size:11px;margin:0"><b>① 映射盘</b>：Windows「映射网络驱动器」后按本地盘接入；<b>② WebDAV</b>：群晖 / 威联通 / TrueNAS 开启 WebDAV Server；<b>③ SFTP</b>：NAS 开启 SSH 走文件级访问。</p>
+            </div>
+            <div>
+              <div class="mini-cap">预期效果与代价</div>
+              <p class="note" style="font-size:11px;margin:0">P0 风险清零，依赖回到成熟 pub 包 + <span class="mono">dart:io</span>；NAS / 对象存储 / 团队盘 / 老 FTP / 本机中转全覆盖。<b>代价</b>：应用内不能直接浏览未映射的 SMB 共享。</p>
+            </div>
+          </div>
+        </div>
+        <p class="note">五类存储映射到统一的 <span class="mono">RemoteEntry</span>（名称 / 路径 / 大小 / 修改时间 / 是否目录 / 校验值）与同一组操作。凡是协议做不到的事，界面不隐藏，而是降级并在按钮旁标注原因。</p>
+
+        <div class="tbl-wrap">
+          <table class="spec">
+            <tr>
+              <th style="width:88px">协议</th><th style="width:96px">端口 / 安全</th><th style="width:150px">认证</th>
+              <th style="width:210px">关键字段</th><th>能力差异与界面提示</th>
+            </tr>
+            <tr>
+              <td><span class="pv ftp">FTP</span></td>
+              <td>21 · 明文<br><span style="color:#B47405;font-weight:700;font-size:10px">FTPS 可选</span></td>
+              <td>用户名 + 密码</td>
+              <td class="mono" style="font-size:9.5px">host / port / TLS / passive</td>
+              <td>无容量查询 → 容量显示「未知」；多数服务器不支持服务端复制 → 降级为下载再上传并提示；文件名编码需探测 UTF-8。</td>
+            </tr>
+            <tr>
+              <td><span class="pv sftp">SFTP</span></td>
+              <td>22 · SSH2</td>
+              <td>密码 / 私钥 + 口令</td>
+              <td class="mono" style="font-size:9.5px">host / port / key / known_hosts</td>
+              <td>支持 mkdir / rename / attrs；容量依赖 statfs 扩展，缺失时显示未知；首次连接要求确认主机指纹并固定。</td>
+            </tr>
+            <tr>
+              <td><span class="pv s3">S3</span></td>
+              <td>443 · HTTPS</td>
+              <td>Access Key + Secret（SigV4）</td>
+              <td class="mono" style="font-size:9.5px">endpoint / region / bucket / path-style / prefix</td>
+              <td>无真实目录（前缀模拟）；rename 非原子（copy + delete）→ 以「移动中」承接；支持分片上传与 Range 续传。</td>
+            </tr>
+            <tr>
+              <td><span class="pv dav">WebDAV</span></td>
+              <td>80 / 443</td>
+              <td>Basic / Digest / Bearer</td>
+              <td class="mono" style="font-size:9.5px">baseUrl / root / auth / depth</td>
+              <td>PROPFIND depth=1 分页拉取；无标准分片上传（部分服务端支持）→ 大文件禁用断点续传并提示。</td>
+            </tr>
+            <tr>
+              <td><span class="pv loc">LOCAL</span></td>
+              <td>— · 系统权限</td>
+              <td>操作系统账户 / SAF 授权</td>
+              <td class="mono" style="font-size:9.5px">path / 只读 / 跟随盘符</td>
+              <td>容量与权限可直接读取；无网络延迟，可作中转与离线缓存；Android 受 Scoped Storage 限制，须 SAF 授权且授权可能被回收。</td>
+            </tr>
+          </table>
+        </div>
+
+        <h3>能力位矩阵</h3>
+        <div class="tbl-wrap">
+          <table class="spec" style="text-align:center">
+            <tr>
+              <th style="text-align:left;width:150px">能力</th>
+              <th>FTP</th><th>SFTP</th><th>S3</th><th>WebDAV</th><th>本地</th>
+              <th style="text-align:left">界面处理</th>
+            </tr>
+            <tr><td><b>列目录</b></td><td><span class="badge ok">原生</span></td><td><span class="badge ok">原生</span></td><td><span class="badge ok">前缀</span></td><td><span class="badge ok">PROPFIND</span></td><td><span class="badge ok">原生</span></td><td>统一表格</td></tr>
+            <tr><td><b>重命名</b></td><td><span class="badge ok">原生</span></td><td><span class="badge ok">原生</span></td><td><span class="badge wn">复制+删除</span></td><td><span class="badge ok">MOVE</span></td><td><span class="badge ok">原生</span></td><td>S3 显示「移动中」</td></tr>
+            <tr><td><b>容量查询</b></td><td><span class="badge dg">不支持</span></td><td><span class="badge wn">statvfs</span></td><td><span class="badge dg">不支持</span></td><td><span class="badge wn">quota 可选</span></td><td><span class="badge ok">原生</span></td><td>不支持时显示「未知」，不留空进度条</td></tr>
+            <tr><td><b>断点续传</b></td><td><span class="badge ok">REST</span></td><td><span class="badge ok">偏移读</span></td><td><span class="badge ok">分片</span></td><td><span class="badge dg">多数不支持</span></td><td><span class="badge ok">原生</span></td><td>不支持时进度条标注「单次完成」</td></tr>
+            <tr><td><b>校验值</b></td><td><span class="badge dg">无</span></td><td><span class="badge wn">扩展</span></td><td><span class="badge ok">ETag</span></td><td><span class="badge ok">ETag</span></td><td><span class="badge wn">需计算</span></td><td>无校验时改为「大小 + 修改时间」比对</td></tr>
+            <tr><td><b>目录大小</b></td><td><span class="badge dg">需遍历</span></td><td><span class="badge dg">需遍历</span></td><td><span class="badge dg">需遍历</span></td><td><span class="badge dg">需遍历</span></td><td><span class="badge dg">需遍历</span></td><td>默认显示「—」，长按可估算</td></tr>
+          </table>
+        </div>
+
+        <h3>代理：一对一绑定到挂载，没有全局开关</h3>
+        <p class="note">有些存储只在特定网络可达——内网 NAS、需要跳板的机房、区域受限的对象存储。Nimbo 把代理做成<b>挂载自己的属性</b>，而不是应用级开关：A 挂载走代理、B 挂载直连，两条链路同时存在、互不影响；不读系统代理，也不改系统设置。</p>
+
+        <div class="card" style="padding:16px 18px">
+          <div class="mini-cap">两条链路可以同时存在</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700">
+              <span class="pv sftp">SFTP</span><span style="min-width:64px">家庭 NAS</span>
+              <span style="flex:1;height:1px;background:repeating-linear-gradient(90deg,#CBD9E6 0 3px,transparent 3px 8px)"></span>
+              <span class="badge ok">直连</span>
+              <span style="flex:1;height:1px;background:repeating-linear-gradient(90deg,#CBD9E6 0 3px,transparent 3px 8px)"></span>
+              <span class="mono" style="font-size:9.5px;color:#41546A">nas.home.lan:22</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:11px;font-weight:700">
+              <span class="pv ftp">FTP</span><span style="min-width:64px">老服务器</span>
+              <span style="flex:1;height:1px;background:repeating-linear-gradient(90deg,#CBD9E6 0 3px,transparent 3px 8px)"></span>
+              <span style="display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;border-radius:99px;font-size:9.5px;font-weight:700;background:#F3F8FC;border:1px solid #E7EEF6;color:#0B5C7A"><svg class="ico s12"><use href="#i-link"/></svg>HTTP 127.0.0.1:7890</span>
+              <span style="flex:1;height:1px;background:repeating-linear-gradient(90deg,#CBD9E6 0 3px,transparent 3px 8px)"></span>
+              <span class="mono" style="font-size:9.5px;color:#41546A">10.0.0.8:21</span>
+            </div>
+          </div>
+          <p class="note" style="font-size:10.5px;margin:12px 0 0">关掉代理只影响「老服务器」，家庭 NAS 的会话与传输不受任何影响；反之亦然。</p>
+        </div>
+
+        <div class="grid2" style="margin-top:14px">
+          <div class="card">
+            <div class="mini-cap">作用域规则</div>
+            <div style="display:flex;flex-direction:column;gap:7px;font-size:11.5px;color:#41546A;line-height:1.55">
+              <span><b style="color:#0D1B2A">写在挂载里</b>：代理随挂载一起保存 / 编辑 / 删除，不进全局设置。</span>
+              <span><b style="color:#0D1B2A">只作用于本挂载</b>：该挂载的列表、上传、下载、预览共用同一条隧道。</span>
+              <span><b style="color:#0D1B2A">即时生效</b>：改完配置后新连接立刻走新链路，进行中的任务按新配置重试。</span>
+              <span><b style="color:#0D1B2A">LOCAL 不提供代理</b>：本地盘没有网络层，向导里该项自动隐藏。</span>
+            </div>
+          </div>
+          <div class="tbl-wrap"><table class="spec">
+            <tr><th style="width:96px">字段</th><th>说明</th></tr>
+            <tr><td><b>类型</b></td><td>HTTP（CONNECT 隧道） / SOCKS5</td></tr>
+            <tr><td><b>主机 · 端口</b></td><td>默认 <span class="mono">127.0.0.1:7890</span>，支持域名</td></tr>
+            <tr><td><b>认证</b></td><td>用户名 / 密码可选，写入系统凭据库，不落配置文件</td></tr>
+            <tr><td><b>远程 DNS</b></td><td>SOCKS5 下把域名交给代理解析（内网域名常开）</td></tr>
+            <tr><td><b>超时</b></td><td>默认 10s，可覆盖单个挂载的超时</td></tr>
+          </table></div>
+        </div>
+
+        <div class="card" style="margin-top:12px;padding:14px 16px">
+          <div class="mini-cap">失败态必须区分「代理不通」与「目标不通」</div>
+          <div class="grid2" style="gap:10px 22px">
+            <div style="font-size:11.5px;line-height:1.6;color:#41546A"><span class="badge dg">代理不可达</span> 连不上 127.0.0.1:7890。请确认代理已启动，或关闭该挂载的代理后重试。</div>
+            <div style="font-size:11.5px;line-height:1.6;color:#41546A"><span class="badge wn">目标不可达</span> 隧道已建立，但 10.0.0.8:21 无响应。请检查目标地址与端口。</div>
+          </div>
+          <p class="note" style="font-size:11px;margin:10px 0 0">「测试连接」分两段计时：先探代理 TCP 握手，再探目标；挂载卡片的连接日志按段记录，一眼看出是代理侧还是目标侧的问题。</p>
+        </div>
+
+        <p class="note" style="margin-top:12px">实现上五个驱动共用一层 <span class="mono">ProxyConnector</span>：HTTP 走 CONNECT 隧道、SOCKS5 握手后透传；HTTP 类协议由 <span class="mono">HttpClient</span> 适配接管，FTP / SFTP 复用同一套 Socket 工厂——代理只在连接层实现一次，驱动本身不需要感知。</p>
+
+        <h3>统一驱动抽象（下一阶段直接落地）</h3>
+        <pre class="code"><span class="cm">// 五个协议实现同一个接口，UI 层只依赖抽象</span>
+<span class="kw">abstract class</span> <span class="ty">StorageDriver</span> {
+  <span class="ty">String</span> <span class="kw">get</span> scheme;                                  <span class="cm">// ftp | sftp | s3 | webdav | local</span>
+  <span class="ty">Capability</span> <span class="kw">get</span> caps;                                <span class="cm">// 能力位：move / copy / space / checksum / resume</span>
+
+  <span class="ty">Future</span>&lt;<span class="ty">List</span>&lt;<span class="ty">RemoteEntry</span>&gt;&gt; <span class="fn">list</span>(<span class="ty">String</span> path, {<span class="ty">String</span>? cursor});
+  <span class="ty">Future</span>&lt;<span class="ty">RemoteStat</span>&gt; <span class="fn">stat</span>(<span class="ty">String</span> path);
+  <span class="ty">Future</span>&lt;<span class="ty">Stream</span>&lt;<span class="ty">List</span>&lt;<span class="ty">int</span>&gt;&gt;&gt; <span class="fn">read</span>(<span class="ty">String</span> path, {<span class="ty">int</span> offset = <span class="st">0</span>});
+
+  <span class="ty">Future</span>&lt;<span class="ty">void</span>&gt; <span class="fn">write</span>(<span class="ty">String</span> path, <span class="ty">Stream</span>&lt;<span class="ty">List</span>&lt;<span class="ty">int</span>&gt;&gt; data, {<span class="ty">int</span> offset = <span class="st">0</span>});
+  <span class="ty">Future</span>&lt;<span class="ty">void</span>&gt; <span class="fn">mkdir</span>(<span class="ty">String</span> path);
+  <span class="ty">Future</span>&lt;<span class="ty">void</span>&gt; <span class="fn">rename</span>(<span class="ty">String</span> from, <span class="ty">String</span> to);
+  <span class="ty">Future</span>&lt;<span class="ty">void</span>&gt; <span class="fn">remove</span>(<span class="ty">List</span>&lt;<span class="ty">String</span>&gt; paths);
+  <span class="ty">Future</span>&lt;<span class="ty">SpaceInfo</span>?&gt; <span class="fn">space</span>();                            <span class="cm">// 不可查询时返回 null</span>
+}</pre>
+        <p class="note" style="margin-top:10px">上层只认 <span class="mono">StorageDriver</span>，因此「传输调度」「离线缓存」「批量操作」「详情面板」四套逻辑写一次即可覆盖五个协议；新协议只需补一个实现与一份表单描述。</p>
+      </section>
+
+      <!-- ================= 06 落地映射 ================= -->
+      <section class="sec" id="s6">
+        <div class="sec-h">
+          <div><div class="eyebrow">Implementation Mapping</div><h2>落地映射与风险</h2></div>
+          <p>纯 Dart 约束下的选型、分层，以及必须先说清的三件事。</p>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="mini-cap">四层结构</div>
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <div style="border:1px solid #CFEAFB;background:#F3FAFF;border-radius:11px;padding:10px 12px">
+                <b style="font-size:11.5px;font-weight:800;color:#075E7E">UI 层 · Flutter</b>
+                <span style="display:block;font-size:10px;color:#41546A;font-weight:600;margin-top:2px">页面 / 组件库 / 主题 token / 响应式断点</span>
+              </div>
+              <div style="border:1px solid var(--dline);background:#fff;border-radius:11px;padding:10px 12px">
+                <b style="font-size:11.5px;font-weight:800">状态层 · Riverpod</b>
+                <span style="display:block;font-size:10px;color:#41546A;font-weight:600;margin-top:2px">挂载会话 / 目录控制器 / 选择集 / 传输队列</span>
+              </div>
+              <div style="border:1px solid var(--dline);background:#fff;border-radius:11px;padding:10px 12px">
+                <b style="font-size:11.5px;font-weight:800">领域层 · StorageDriver × 5</b>
+                <span style="display:block;font-size:10px;color:#41546A;font-weight:600;margin-top:2px">FTP / SFTP / S3 / WebDAV / 本地 · 统一模型与能力位</span>
+              </div>
+              <div style="border:1px solid var(--dline);background:#fff;border-radius:11px;padding:10px 12px">
+                <b style="font-size:11.5px;font-weight:800">基础设施</b>
+                <span style="display:block;font-size:10px;color:#41546A;font-weight:600;margin-top:2px">Socket / TLS / 分片调度 / SQLite 元数据 / 安全存储 / 文件系统</span>
+              </div>
+            </div>
+          </div>
+          <div class="tbl-wrap"><table class="spec">
+            <tr><th style="width:110px">能力</th><th>选型</th><th style="width:80px">风险</th></tr>
+            <tr><td><b>FTP</b></td><td class="mono" style="font-size:9.5px">ftpclient</td><td><span class="badge ok">低</span></td></tr>
+            <tr><td><b>SFTP</b></td><td class="mono" style="font-size:9.5px">dartssh2</td><td><span class="badge wn">中</span></td></tr>
+            <tr><td><b>S3</b></td><td class="mono" style="font-size:9.5px">minio（S3 兼容）+ SigV4 自实现兜底</td><td><span class="badge wn">中</span></td></tr>
+            <tr><td><b>WebDAV</b></td><td class="mono" style="font-size:9.5px">webdav_client + dio</td><td><span class="badge ok">低</span></td></tr>
+            <tr><td><b>本地盘</b></td><td class="mono" style="font-size:9.5px">dart:io + path（Android 走 SAF）</td><td><span class="badge wn">中</span></td></tr>
+            <tr><td><b>元数据</b></td><td class="mono" style="font-size:9.5px">drift（sqlite）</td><td><span class="badge ok">低</span></td></tr>
+            <tr><td><b>凭据</b></td><td class="mono" style="font-size:9.5px">flutter_secure_storage</td><td><span class="badge ok">低</span></td></tr>
+            <tr><td><b>代理</b></td><td class="mono" style="font-size:9.5px">HTTP CONNECT / SOCKS5 握手自实现 + HttpClient 适配</td><td><span class="badge wn">中</span></td></tr>
+            <tr><td><b>桌面集成</b></td><td class="mono" style="font-size:9.5px">window_manager · tray_manager</td><td><span class="badge ok">低</span></td></tr>
+          </table></div>
+        </div>
+
+        <h3>三个必须先想清楚的技术点</h3>
+        <div class="grid3">
+          <div class="card" style="border-color:#FDE68A;background:#FFFDF5">
+            <div class="mini-cap" style="color:#B47405">RISK 01 · 最高优先</div>
+            <b style="font-size:12.5px;font-weight:800">本地盘与映射盘的平台差异</b>
+            <p class="note" style="font-size:11.5px;margin:8px 0 0">Windows 侧路径稳定，映射盘符可直接读写；Android 侧受 Scoped Storage 限制，必须走 SAF 授权目录，且授权可能被系统回收。<br><br><b style="color:#8A2438">授权失效时</b>必须降级为「只读缓存 + 重新授权」引导，不能静默失败。</p>
+          </div>
+          <div class="card">
+            <div class="mini-cap" style="color:#5B41D6">RISK 02</div>
+            <b style="font-size:12.5px;font-weight:800">S3 没有原子移动</b>
+            <p class="note" style="font-size:11.5px;margin:8px 0 0">rename 只能 copy + delete。界面用「移动中」状态承接，失败时保留源对象并明确告知未删除，绝不出现「源没了、目标也没成」。</p>
+          </div>
+          <div class="card">
+            <div class="mini-cap" style="color:#0A8068">RISK 03</div>
+            <b style="font-size:12.5px;font-weight:800">大文件吞吐</b>
+            <p class="note" style="font-size:11.5px;margin:8px 0 0">SFTP 窗口 32 MB、S3 分片 8 MB + 并发 4、WebDAV 复用长连接；传输层统一做令牌桶限速，避免五套驱动各写一套。</p>
+          </div>
+        </div>
+
+        <h3>设计稿验收清单</h3>
+        <div class="card">
+          <div class="grid2" style="gap:4px 24px">
+            <div style="display:flex;flex-direction:column;gap:5px">
+              <span style="font-size:11.5px;color:#41546A"><svg class="ico s12" style="display:inline-block;vertical-align:-2px;color:#137A4B;margin-right:5px"><use href="#i-check"/></svg> 两端共用一套 token 与单一浅色主题，不存在第二套布局</span>
+              <span style="font-size:11.5px;color:#41546A"><svg class="ico s12" style="display:inline-block;vertical-align:-2px;color:#137A4B;margin-right:5px"><use href="#i-check"/></svg> 五类存储在文件页结构完全一致，差异只在连接表单与能力提示</span>
+              <span style="font-size:11.5px;color:#41546A"><svg class="ico s12" style="display:inline-block;vertical-align:-2px;color:#137A4B;margin-right:5px"><use href="#i-check"/></svg> 传输进度在桌面抽屉 / 标题栏、移动底栏徽标三处可见</span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:5px;">
+              <span style="font-size:11.5px;color:#41546A"><svg class="ico s12" style="display:inline-block;vertical-align:-2px;color:#137A4B;margin-right:5px"><use href="#i-check"/></svg> 四态（加载 / 空 / 错误 / 离线）均有独立设计且给出下一步动作</span>
+              <span style="font-size:11.5px;color:#41546A"><svg class="ico s12" style="display:inline-block;vertical-align:-2px;color:#137A4B;margin-right:5px"><use href="#i-check"/></svg> 正文对比度 ≥ 4.5:1，触控目标 ≥ 44，键位覆盖全操作</span>
+              <span style="font-size:11.5px;color:#41546A"><svg class="ico s12" style="display:inline-block;vertical-align:-2px;color:#137A4B;margin-right:5px"><use href="#i-check"/></svg> 危险操作有确认，冲突有策略，失败可重试且不丢进度</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:26px;border:1px solid #CFEAFB;background:linear-gradient(120deg,#F3FAFF,#F0FDFA);border-radius:18px;padding:22px 24px;display:flex;align-items:center;gap:18px">
+          <div style="width:38px;height:38px;border-radius:11px;background:var(--grad);display:grid;place-items:center;color:#fff;flex:none;box-shadow:0 8px 18px -8px rgba(14,165,233,.9)"><svg class="ico s18"><use href="#i-check"/></svg></div>
+          <div style="flex:1">
+            <b style="font-size:14px;font-weight:800;letter-spacing:-.2px">下一步</b>
+            <p style="margin:4px 0 0;font-size:12px;color:#41546A;line-height:1.65">确认本稿后，我将输出 Flutter 工程骨架：<span class="mono">tokens.dart</span> / <span class="mono">theme.dart</span> + 组件库（按钮 / 行 / 徽标 / 进度 / 表单）+ 双端自适应外壳，并用 WebDAV 打通第一条真实读写链路。</p>
+          </div>
+          <div style="display:flex;gap:8px;flex:none">
+            <span class="badge bl">约 1,400 行 Dart</span>
+            <span class="badge">可运行</span>
+          </div>
+        </div>
+      </section>
+
+      <footer style="margin-top:56px;padding-top:18px;border-top:1px solid var(--dline);display:flex;align-items:center;gap:12px;font-size:10.5px;color:var(--dink3);font-weight:600">
+        <svg class="ico s14" style="color:var(--sky6)"><use href="#i-cloud"/></svg>
+        Nimbo · 多协议网盘客户端 · 设计稿 v1.2
+        <span style="margin-left:auto;display:flex;gap:14px">
+          <span>视觉体系参考 OpenList-Client</span>
+          <span>2026-10-23</span>
+          <span style="font-family:var(--mono)">1360×860 / 390×844</span>
+        </span>
+      </footer>
+
+    </div>
+  </main>
+</div>
+
+<script>
+/* 画板等比缩放 */
+function fitAll(){
+  document.querySelectorAll('.fitbox').forEach(box=>{
+    const el=box.querySelector('.fit'); if(!el) return;
+    const w=parseFloat(el.dataset.w)||el.offsetWidth||1;
+    el.style.transform='none';
+    el.style.width=w+'px';
+    const h=el.offsetHeight||parseFloat(el.dataset.h)||0;
+    const s=Math.min(box.clientWidth/w,1);
+    el.style.transform='scale('+s+')';
+    box.style.height=(h*s)+'px';
+  });
+}
+window.addEventListener('resize',fitAll);
+window.addEventListener('load',fitAll);
+
+/* 目录高亮 */
+(function(){
+  const links=[...document.querySelectorAll('.rail-i')];
+  const secs=links.map(a=>document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  const io=new IntersectionObserver(es=>{
+    es.forEach(e=>{
+      if(e.isIntersecting){
+        const id='#'+e.target.id;
+        links.forEach(l=>l.classList.toggle('on',l.getAttribute('href')===id));
+      }
+    });
+  },{rootMargin:'-15% 0px -70% 0px'});
+  secs.forEach(s=>io.observe(s));
+})();
+</script>
+</body>
+</html>
