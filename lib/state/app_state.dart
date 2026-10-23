@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../core/format.dart';
 import '../core/models.dart';
 import '../core/store.dart';
+import '../core/transfer_store.dart';
 import '../drivers/factory.dart';
 import '../drivers/storage_driver.dart';
 import 'transfer_manager.dart';
@@ -77,6 +78,9 @@ class AppState extends ChangeNotifier {
   Future<void> boot() async {
     await _prefs.load();
     transfers.maxConcurrent = _prefs.settings.maxConcurrent;
+    // 恢复上次的传输记录：统一转成「已暂停」，由用户决定是否继续。
+    final saved = await TransferStore.load();
+    await transfers.restore(saved, _prefs.mounts.map((m) => m.id).toSet());
     // 启动停在「全部挂载」：根目录先让用户看到所有挂载，而不是直接钻进上次那个。
     browseAll = true;
     notifyListeners();

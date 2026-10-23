@@ -315,4 +315,44 @@ class TransferTask {
     if (secs <= 0 || secs > 86400 * 7) return null;
     return Duration(seconds: secs);
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'mountId': mountId,
+        'mountName': mountName,
+        'name': name,
+        'remotePath': remotePath,
+        'localPath': localPath,
+        'dir': dir.name,
+        'total': total,
+        'transferred': transferred,
+        'status': status.name,
+        'error': error,
+        'resumeOffset': resumeOffset,
+        'createdAt': createdAt.toIso8601String(),
+        'finishedAt': finishedAt?.toIso8601String(),
+      };
+
+  factory TransferTask.fromJson(Map<String, dynamic> j) {
+    final task = TransferTask(
+      id: (j['id'] as String?) ?? '',
+      mountId: (j['mountId'] as String?) ?? '',
+      mountName: (j['mountName'] as String?) ?? '',
+      name: (j['name'] as String?) ?? '',
+      remotePath: (j['remotePath'] as String?) ?? '/',
+      localPath: (j['localPath'] as String?) ?? '',
+      dir: j['dir'] == 'upload' ? TransferDir.upload : TransferDir.download,
+      total: (j['total'] as num?)?.toInt() ?? 0,
+      status: TransferStatus.values.firstWhere(
+        (s) => s.name == j['status'],
+        orElse: () => TransferStatus.paused,
+      ),
+      error: j['error'] as String?,
+      createdAt: DateTime.tryParse((j['createdAt'] as String?) ?? ''),
+    );
+    task.transferred = (j['transferred'] as num?)?.toInt() ?? 0;
+    task.resumeOffset = (j['resumeOffset'] as num?)?.toInt() ?? 0;
+    task.finishedAt = DateTime.tryParse((j['finishedAt'] as String?) ?? '');
+    return task;
+  }
 }

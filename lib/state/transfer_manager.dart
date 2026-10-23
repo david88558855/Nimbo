@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../core/format.dart';
 import '../core/models.dart';
+import '../core/transfer_store.dart';
 import '../drivers/factory.dart';
 import '../drivers/storage_driver.dart';
 
@@ -32,8 +33,35 @@ class TransferManager extends ChangeNotifier {
 
   final Map<String, Mount> _mounts = {};
   Timer? _ticker;
+  Timer? _saveTimer;
   bool _disposed = false;
   int _seq = 0;
+
+  /// 恢复上次会话的任务列表：进行中的一律转成「已暂停」，绝不自动重跑。
+  Future<void> restore(List<TransferTask> saved, Set<String> liveMountIds) async {
+    final usable = saved.where((t) => liveMountIds.contains(t.mountId)).toList();
+    if (usable.isEmpty) return;
+    tasks
+      ..clear()
+      ..addAll(usable);
+    for (final t in tasks) {
+      if (t.isActive) t.status = TransferStatus.paused;
+      t.speed = 0;
+      t.abort = false;
+      if (t.resumeOffset <= 0) t.resumeOffset = t.transferred;
+    }
+    _seq = tasks.length;
+    notifyListeners();
+  }
+
+  /// 状态变化后延迟落盘，避免高频进度回调把磁盘写满。
+  void _scheduleSave() {
+    if (_disposed) return;
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 700), () {
+      unawaited(TransferStore.save(tasks));
+    });
+  }
 
   int get runningCount =>
       tasks.where((t) => t.status == TransferStatus.running).length;
@@ -197,6 +225,7 @@ class TransferManager extends ChangeNotifier {
     if (task.status == TransferStatus.running || task.status == TransferStatus.queued) {
       task.abort = task.status == TransferStatus.running;
       task.status = TransferStatus.paused;
+      _scheduleSave();
       notifyListeners();
       return;
     }
@@ -223,18 +252,14 @@ class TransferManager extends ChangeNotifier {
     task.abort = true;
     if (task.dir == TransferDir.download) _discardPartial(task.localPath);
     task.resumeOffset = 0;
-    if (task.status == TransferStatus.running) {
-      // 驱动退出前先从列表移除，_run 里的 contains 判断会跳过状态回写
-      tasks.remove(task);
-      notifyListeners();
-      return;
-    }
     tasks.remove(task);
+    _scheduleSave();
     notifyListeners();
   }
 
   void clearFinished() {
     tasks.removeWhere((t) => t.status == TransferStatus.done);
+    _scheduleSave();
     notifyListeners();
   }
 
@@ -245,6 +270,7 @@ class TransferManager extends ChangeNotifier {
       t.abort = true;
     }
     tasks.removeWhere((x) => x.mountId == mountId);
+    _scheduleSave();
     notifyListeners();
   }
 
@@ -271,6 +297,7 @@ class TransferManager extends ChangeNotifier {
       unawaited(_run(next));
     }
     _ensureTicker();
+    _scheduleSave();
     notifyListeners();
   }
 
@@ -442,9 +469,11 @@ class TransferManager extends ChangeNotifier {
     _disposed = true;
     _ticker?.cancel();
     _ticker = null;
+    _saveTimer?.cancel();
     for (final t in tasks) {
       t.abort = true;
     }
+    unawaited(TransferStore.save(tasks));
     super.dispose();
   }
 }
