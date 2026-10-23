@@ -81,7 +81,7 @@ git -c http.version=HTTP/1.1 ls-remote https://github.com/david88558855/Nimbo.gi
 | **P0 骨架** | 五个驱动能连、能列、能读写；双端外壳；云端构建跑通 | ✅ 完成 |
 | **P1 传输闭环** | 上传（file_picker）、传输队列、暂停/继续/取消/重试、速度与剩余时间、SFTP 走代理、S3 分片上传、SFTP 流式 | ✅ 完成（本轮） |
 | **P2 体验补齐** | 断点续传、预览、拖拽、多选批量、目录上传下载 | ✅ 完成 |
-| **P3 打磨** | 传输记录持久化 ✅、S3 目录分页删除 ✅、FTP 匿名 ✅、返回键逐级回退 ✅、移动端长按多选 ✅；限速、S3 分片续传/并发、WebDAV 上传续传、临时名 rename、托盘 ⬜ | 🟡 进行中 |
+| **P3 打磨** | 传输记录持久化 ✅、S3 目录分页删除 ✅、FTP 匿名 ✅、返回键逐级+双击退出 ✅、移动端长按多选 ✅、Windows 托盘/单实例 ✅、便携凭据 ✅；限速、S3 分片续传/并发、WebDAV 上传续传、临时名 rename ⬜ | 🟡 进行中 |
 
 **一句话现状**：五个协议都能真实读写，上传下载都能排队跑，代理对五个协议全部生效；
 大文件中断后能接着传（下载全协议，上传 FTP/SFTP/本地）；多选、目录上传下载、拖拽、预览、
@@ -183,6 +183,10 @@ downloadTo / uploadFile / mkdir / removeEntry / move / probe`，错误统一抛 
 | S3 目录删除 | `IsTruncated` + `NextContinuationToken` 循环，不再只删前 1000 个键 |
 | 长按多选 | 行内长按进入多选（移动端主入口），单项操作走行尾「更多」菜单 |
 | 传输记录持久化 | `core/transfer_store.dart` → `userdata/transfers.json`，保留 60 条；启动恢复为「已暂停」，不自动重跑；状态变化 700 ms 防抖落盘，退出时再落一次 |
+| Windows 托盘 | `core`… 见 `lib/platform/desktop_shell.dart`；`assets/tray.ico` 由脚本生成。左键单击无反应、双击显示窗口、右键菜单「显示主窗口 / 退出」。0.5.x 兼容层会丢弃 `DoubleClicked`，所以额外直接监听底层 `TrayIconDoubleClickedEvent` 兜底 |
+| 单实例 | `lib/platform/single_instance.dart`：回环 47913 端口，第二个进程写入 `show` 后 `exit(0)`；不用锁文件，进程退出端口自然释放 |
+| 便携凭据 | Windows 双写 `userdata/credentials.dat`（固定密钥 XOR + base64），读取优先系统凭据库、失败回落便携文件；删挂载清两边。**这是可逆混淆，不是加密**，只解决「整个目录拷走密码还在」 |
+| 双击返回 | 到「全部挂载」根后，第一次返回只弹提示，2 秒内再按一次才 `SystemNavigator.pop()` |
 
 ---
 
@@ -341,11 +345,11 @@ HTTP 类只接受 `206 Partial Content`：服务器返回 200 说明忽略了 Ra
 
 | # | 事项 | 为什么 | 难度 | 主要文件 |
 |---|---|---|---|---|
-| 1 | **Windows 系统托盘**（关闭/最小化到托盘、托盘菜单） | 桌面端最后一块体验缺口。`tray_manager 0.8` 是全新 native API（`TrayIcon.create()`），需要图标资源与 `window_manager` 拦截关闭事件 | 中 | `main.dart`、`shell.dart`、`pubspec.yaml`、`assets/` |
-| 2 | **S3 分片续传 + 分片并发** | 中断后整份重传成本最高；并发能改善高延迟链路。需持久化 `uploadId` 与已完成分片表 | 高 | `s3_driver.dart`、`transfer_manager.dart` |
-| 3 | **WebDAV 上传续传** | 标准 WebDAV 无追加语义，只能走第三方分块扩展或临时名 + rename | 高 | `webdav_driver.dart` |
-| 4 | **上传先写临时名再 rename** | 解决 WebDAV/FTP 中断残留；需要 `StorageDriver` 加 `atomic` 能力位 | 中 | `storage_driver.dart` + 三个驱动 |
-| 5 | **限速** | 上传/下载限速（全局或单任务） | 中 | 传输循环加令牌桶 |
+| 1 | **S3 分片续传 + 分片并发** | 中断后整份重传成本最高；并发能改善高延迟链路。需持久化 `uploadId` 与已完成分片表 | 高 | `s3_driver.dart`、`transfer_manager.dart` |
+| 2 | **WebDAV 上传续传** | 标准 WebDAV 无追加语义，只能走第三方分块扩展或临时名 + rename | 高 | `webdav_driver.dart` |
+| 3 | **上传先写临时名再 rename** | 解决 WebDAV/FTP 中断残留；需要 `StorageDriver` 加 `atomic` 能力位 | 中 | `storage_driver.dart` + 三个驱动 |
+| 4 | **限速** | 上传/下载限速（全局或单任务） | 中 | 传输循环加令牌桶 |
+| 5 | **关闭到托盘** | 现在点 × 直接退出；需要 `windowManager.setPreventClose(true)` + `onWindowClose` 改 hide | 低 | `lib/platform/desktop_shell.dart` |
 | 6 | **SFTP / 本地容量** | 现在恒为「未知」；SFTP 可试 `SftpClient.statvfs`（API 未在文档站生成，需实际验证） | 低 | `sftp_driver.space()`、`local_driver.space()` |
 | 7 | **统一错误文案** | 代理不通 vs 目标不通要能区分；`DriverErrorKind` 已有，缺映射表 | 低 | `ui/` 新增文案映射 + 各 `catch` |
 | 8 | **预览扩展（音视频 / PDF）** | 现在只覆盖图片与文本；`media_kit` 需评估包体积 | 高 | `preview_page.dart` |
@@ -420,6 +424,7 @@ HTTP 类只接受 `206 Partial Content`：服务器返回 200 说明忽略了 Ra
 | 2026-10-24 06:02 | `b5f1851` | ✅ | ✅ | ✅ | 文件页根改为「全部挂载」聚合视图（`browseAll`），不再只渲染单个挂载 |
 | 2026-10-24 06:30 | `99c48e4` | ✅ | ✅ | ✅ | P3-1：FTP 匿名、返回键逐级回退、S3 目录分页删除、长按多选 |
 | 2026-10-24 06:36 | `67431e8` | ✅ | ✅ | ✅ | P3-2：传输记录持久化（`transfers.json`，恢复为已暂停） |
+| 2026-10-24 07:05 | `8b56751` | ✅ | ✅ | ✅ | P3-3：Windows 托盘/单实例/便携凭据 + 返回连按两次退出（新增 tray_manager、window_manager） |
 
 - 最近一次成功：run `39970353975`（commit `0237274`），`analyze` 输出 `No issues found!`
 - 产物：`windows-x64-portable.zip` 12.53 MB（内含 `Nimbo.exe`）、`app-release.apk` 20.5 MB（arm64 release）
