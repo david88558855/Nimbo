@@ -6,6 +6,7 @@ import '../core/format.dart';
 import '../core/models.dart';
 import '../state/app_state.dart';
 import '../ui/kit.dart';
+import 'preview_page.dart';
 
 class FilesPage extends StatelessWidget {
   const FilesPage({
@@ -40,6 +41,7 @@ class FilesPage extends StatelessWidget {
             color: NimboColors.sky600,
             backgroundColor: NimboColors.line2,
           ),
+        if (state.selectionMode) _SelectionBar(state: state),
         Expanded(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -143,16 +145,16 @@ class _Header extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              if (!state.readOnly)
-                NimboButton('上传',
-                    kind: NimboButtonKind.primary,
-                    icon: Icons.upload_rounded,
-                    onPressed: () => _upload(context, state)),
+              if (!state.readOnly) _UploadButton(state: state),
               if (!state.readOnly) const SizedBox(width: 7),
               if (!state.readOnly)
                 NimboButton(compact ? '新建' : '新建文件夹',
                     icon: Icons.create_new_folder_outlined,
                     onPressed: () => _newFolder(context, state)),
+              const SizedBox(width: 7),
+              NimboButton('选择',
+                  icon: Icons.checklist_rounded,
+                  onPressed: state.entries.isEmpty ? null : () => state.beginSelection()),
               if (!compact) ...[
                 const SizedBox(width: 7),
                 NimboButton('挂载管理',
@@ -165,6 +167,167 @@ class _Header extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _UploadButton extends StatelessWidget {
+  const _UploadButton({required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: '上传',
+      offset: const Offset(0, 34),
+      onSelected: (v) {
+        if (v == 'files') _upload(context, state);
+        if (v == 'folder') _uploadFolder(context, state);
+      },
+      itemBuilder: (_) => const [
+        PopupMenuItem(
+          value: 'files',
+          height: 38,
+          child: Row(children: [
+            Icon(Icons.insert_drive_file_outlined, size: 15, color: NimboColors.ink3),
+            SizedBox(width: 8),
+            Text('上传文件', style: TextStyle(fontSize: 12)),
+          ]),
+        ),
+        PopupMenuItem(
+          value: 'folder',
+          height: 38,
+          child: Row(children: [
+            Icon(Icons.folder_copy_outlined, size: 15, color: NimboColors.ink3),
+            SizedBox(width: 8),
+            Text('上传文件夹', style: TextStyle(fontSize: 12)),
+          ]),
+        ),
+      ],
+      child: Container(
+        height: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 11),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          gradient: NimboColors.gradient,
+          boxShadow: const [
+            BoxShadow(color: Color(0x400EA5E9), blurRadius: 12, offset: Offset(0, 4)),
+          ],
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.upload_rounded, size: 14, color: Colors.white),
+            SizedBox(width: 5),
+            Text('上传',
+                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Colors.white)),
+            SizedBox(width: 1),
+            Icon(Icons.expand_more_rounded, size: 14, color: Colors.white),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SelectionBar extends StatelessWidget {
+  const _SelectionBar({required this.state});
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final n = state.pickedCount;
+    final all = state.entries.isNotEmpty && n >= state.entries.length;
+    return Container(
+      height: 44,
+      margin: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF8FF),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFCFE8FA)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.checklist_rounded, size: 15, color: NimboColors.sky700),
+          const SizedBox(width: 7),
+          Text(
+            n == 0 ? '选择要操作的项目' : '已选 $n 项',
+            style: const TextStyle(
+                fontSize: 11.5, fontWeight: FontWeight.w700, color: NimboColors.sky700),
+          ),
+          const SizedBox(width: 12),
+          InkWell(
+            onTap: () => all ? state.exitSelection() : state.pickAll(),
+            borderRadius: BorderRadius.circular(6),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+              child: Text(all ? '取消全选' : '全选',
+                  style: const TextStyle(
+                      fontSize: 11, fontWeight: FontWeight.w600, color: NimboColors.ink3)),
+            ),
+          ),
+          const Spacer(),
+          NimboButton('下载',
+              kind: NimboButtonKind.secondary,
+              icon: Icons.download_rounded,
+              onPressed: n == 0 ? null : () => _downloadPicked(context)),
+          if (!state.readOnly) ...[
+            const SizedBox(width: 6),
+            NimboButton('删除',
+                kind: NimboButtonKind.danger,
+                icon: Icons.delete_outline_rounded,
+                onPressed: n == 0 ? null : () => _deletePicked(context)),
+          ],
+          const SizedBox(width: 4),
+          IconButton(
+            tooltip: '退出多选',
+            visualDensity: VisualDensity.compact,
+            onPressed: state.exitSelection,
+            icon: const Icon(Icons.close_rounded, size: 16, color: NimboColors.ink3),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _downloadPicked(BuildContext context) async {
+    final skipped = state.pickedEntries.where((e) => e.isDir).length;
+    final n = await state.downloadPicked();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(skipped == 0 ? '已加入下载队列：$n 个文件' : '已加入下载队列：$n 个文件，跳过 $skipped 个文件夹'),
+    ));
+  }
+
+  Future<void> _deletePicked(BuildContext context) async {
+    final n = state.pickedCount;
+    final ok = await _confirmDelete(
+        context, state, n == 1 ? '「${state.pickedEntries.first.name}」' : '$n 项');
+    if (ok != true) return;
+    try {
+      final done = await state.deletePicked();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('已删除 $done 项')));
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+}
+
+Future<void> _uploadFolder(BuildContext context, AppState state) async {
+  try {
+    final dir = await FilePicker.platform.getDirectoryPath(dialogTitle: '选择要上传的文件夹');
+    if (dir == null || dir.isEmpty) return;
+    final n = await state.uploadFolder(dir);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(n == 0 ? '该文件夹内没有可上传的文件' : '已加入上传队列：$n 个文件'),
+    ));
+  } catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
   }
 }
 
@@ -315,10 +478,15 @@ class _Row extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final picked = state.selectionMode && state.isPicked(entry);
     return Material(
-      color: selected ? const Color(0xFFF3FAFF) : Colors.transparent,
+      color: picked ? const Color(0xFFEFF8FF) : (selected ? const Color(0xFFF3FAFF) : Colors.transparent),
       child: InkWell(
         onTap: () {
+          if (state.selectionMode) {
+            state.togglePicked(entry);
+            return;
+          }
           if (entry.isDir) {
             state.cd(entry.path);
           } else if (wide) {
@@ -327,7 +495,13 @@ class _Row extends StatelessWidget {
             _showActions(context, state, entry);
           }
         },
-        onLongPress: () => _showActions(context, state, entry),
+        onLongPress: () {
+          if (state.selectionMode) {
+            state.togglePicked(entry);
+            return;
+          }
+          _showActions(context, state, entry);
+        },
         child: Container(
           height: wide ? 44 : 56,
           padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -336,6 +510,10 @@ class _Row extends StatelessWidget {
           ),
           child: Row(
             children: [
+              if (state.selectionMode) ...[
+                _PickBox(checked: state.isPicked(entry), onTap: () => state.togglePicked(entry)),
+                const SizedBox(width: 7),
+              ],
               EntryTile(entry: entry, size: wide ? 28 : 34),
               const SizedBox(width: 9),
               Expanded(
@@ -375,6 +553,9 @@ class _Row extends StatelessWidget {
                   icon: const Icon(Icons.more_horiz_rounded, size: 16, color: NimboColors.ink4),
                   onSelected: (v) => _onMenu(context, state, entry, v),
                   itemBuilder: (_) => [
+                    if (!entry.isDir && canPreviewEntry(entry))
+                      const PopupMenuItem(
+                          value: 'preview', child: Text('预览', style: TextStyle(fontSize: 12))),
                     if (!entry.isDir)
                       const PopupMenuItem(value: 'download', child: Text('下载', style: TextStyle(fontSize: 12))),
                     if (!state.readOnly) ...[
@@ -394,6 +575,9 @@ class _Row extends StatelessWidget {
 
 void _onMenu(BuildContext context, AppState state, RemoteEntry entry, String action) {
   switch (action) {
+    case 'preview':
+      showPreview(context, state, entry);
+      break;
     case 'download':
       state.download(entry);
       break;
@@ -403,6 +587,31 @@ void _onMenu(BuildContext context, AppState state, RemoteEntry entry, String act
     case 'delete':
       _delete(context, state, entry);
       break;
+  }
+}
+
+class _PickBox extends StatelessWidget {
+  const _PickBox({required this.checked, required this.onTap});
+  final bool checked;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(5),
+      child: Container(
+        width: 17,
+        height: 17,
+        decoration: BoxDecoration(
+          color: checked ? NimboColors.sky600 : Colors.white,
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(
+              color: checked ? NimboColors.sky600 : const Color(0xFFCFDCE8), width: 1.3),
+        ),
+        child: checked ? const Icon(Icons.check_rounded, size: 12, color: Colors.white) : null,
+      ),
+    );
   }
 }
 
@@ -432,12 +641,13 @@ Future<void> _rename(BuildContext context, AppState state, RemoteEntry entry) as
   }
 }
 
-Future<void> _delete(BuildContext context, AppState state, RemoteEntry entry) async {
-  final ok = await showDialog<bool>(
+Future<bool?> _confirmDelete(BuildContext context, AppState state, String target) {
+  if (!state.settings.confirmDelete) return Future.value(true);
+  return showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
       title: const Text('删除确认', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
-      content: Text('将删除「${entry.name}」${entry.isDir ? '及其全部内容' : ''}，此操作不可撤销。',
+      content: Text('将删除 $target，此操作不可撤销。',
           style: const TextStyle(fontSize: 12.5, height: 1.6)),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
@@ -449,6 +659,11 @@ Future<void> _delete(BuildContext context, AppState state, RemoteEntry entry) as
       ],
     ),
   );
+}
+
+Future<void> _delete(BuildContext context, AppState state, RemoteEntry entry) async {
+  final ok = await _confirmDelete(
+      context, state, '「${entry.name}」${entry.isDir ? '及其全部内容' : ''}');
   if (ok != true) return;
   try {
     await state.deleteEntry(entry);
@@ -485,6 +700,15 @@ void _showActions(BuildContext context, AppState state, RemoteEntry entry) {
               ],
             ),
           ),
+          if (!entry.isDir && canPreviewEntry(entry))
+            ListTile(
+              leading: const Icon(Icons.visibility_outlined, size: 20),
+              title: const Text('预览', style: TextStyle(fontSize: 13)),
+              onTap: () {
+                Navigator.pop(ctx);
+                showPreview(context, state, entry);
+              },
+            ),
           if (!entry.isDir)
             ListTile(
               leading: const Icon(Icons.download_rounded, size: 20),

@@ -72,6 +72,7 @@ class TransferManager extends ChangeNotifier {
     String localFile,
     String remoteDir, {
     String? name,
+    String? remotePath,
   }) async {
     final f = File(localFile);
     if (!f.existsSync()) throw DriverException('本地文件不存在：$localFile');
@@ -84,13 +85,46 @@ class TransferManager extends ChangeNotifier {
         mountId: mount.id,
         mountName: mount.name,
         name: fileName,
-        remotePath: joinPath(remoteDir, fileName),
+        remotePath: remotePath ?? joinPath(remoteDir, fileName),
         localPath: localFile,
         dir: TransferDir.upload,
         total: await f.length(),
       ),
     );
     _pump();
+  }
+
+  /// 目录上传：递归遍历本地目录，每个文件一个任务，远端保留相对层级。
+  ///
+  /// 空目录不单独建任务（协议语义不一致），目录本身由任务的 mkdir 父目录
+  /// 逻辑按需创建；返回入队文件数。
+  Future<int> enqueueUploadDir(Mount mount, String localDir, String remoteDir) async {
+    final root = Directory(localDir);
+    if (!root.existsSync()) throw DriverException('本地目录不存在：$localDir');
+    final files = <String>[];
+    try {
+      await for (final entity in root.list(recursive: true, followLinks: false)) {
+        if (entity is File) files.add(entity.path);
+      }
+    } on FileSystemException catch (e) {
+      throw DriverException('读取本地目录失败：${e.message}');
+    }
+    final base = root.path.replaceAll(RegExp(r'[\\/]+$'), '');
+    final folderName = base.split(RegExp(r'[\\/]')).last;
+    final target = joinPath(remoteDir, sanitizeName(folderName));
+    for (final path in files) {
+      final rel = path.substring(base.length).replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
+      if (rel.isEmpty) continue;
+      final segments = rel.split('/').map(sanitizeName).toList();
+      await enqueueUpload(
+        mount,
+        path,
+        target,
+        name: segments.last,
+        remotePath: '$target/${segments.join('/')}',
+      );
+    }
+    return files.length;
   }
 
   // ---------- 控制 ----------

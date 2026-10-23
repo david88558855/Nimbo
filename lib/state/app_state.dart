@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
@@ -47,6 +48,17 @@ class AppState extends ChangeNotifier {
   String? error;
   RemoteEntry? selected;
 
+  /// 多选（按 path 记录，刷新后自动丢弃已不存在的项）。
+  final Set<String> _picked = <String>{};
+  bool selectionMode = false;
+
+  Set<String> get picked => _picked;
+  int get pickedCount => _picked.length;
+  bool isPicked(RemoteEntry entry) => _picked.contains(entry.path);
+
+  List<RemoteEntry> get pickedEntries =>
+      entries.where((e) => _picked.contains(e.path)).toList(growable: false);
+
   List<TransferTask> get tasks => transfers.tasks;
 
   bool get hasMount => activeMount != null;
@@ -75,6 +87,7 @@ class AppState extends ChangeNotifier {
     error = null;
     entries = const [];
     selected = null;
+    _clearPicked();
     path = '/';
     notifyListeners();
     try {
@@ -84,7 +97,7 @@ class AppState extends ChangeNotifier {
       _driver = d;
       _prefs.activeMountId = mount.id;
       await _prefs.save();
-      entries = await d.list('/');
+      entries = _visible(await d.list('/'));
     } catch (e) {
       _driver = null;
       error = e is DriverException ? e.message : '$e';
@@ -101,7 +114,7 @@ class AppState extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      entries = await d.list(path);
+      entries = _visible(await d.list(path));
     } catch (e) {
       error = e is DriverException ? e.message : '$e';
     } finally {
@@ -117,9 +130,10 @@ class AppState extends ChangeNotifier {
     loading = true;
     error = null;
     selected = null;
+    _clearPicked();
     notifyListeners();
     try {
-      entries = await d.list(normalized);
+      entries = _visible(await d.list(normalized));
       path = normalized;
     } catch (e) {
       error = e is DriverException ? e.message : '$e';
@@ -135,6 +149,93 @@ class AppState extends ChangeNotifier {
     if (selected?.path == entry?.path) return;
     selected = entry;
     notifyListeners();
+  }
+
+  // ---------- 多选 ----------
+
+  void beginSelection([RemoteEntry? seed]) {
+    selectionMode = true;
+    selected = null;
+    if (seed != null) _picked.add(seed.path);
+    notifyListeners();
+  }
+
+  void togglePicked(RemoteEntry entry) {
+    if (!_picked.remove(entry.path)) _picked.add(entry.path);
+    notifyListeners();
+  }
+
+  void pickAll() {
+    _picked
+      ..clear()
+      ..addAll(entries.map((e) => e.path));
+    selectionMode = true;
+    notifyListeners();
+  }
+
+  void exitSelection() {
+    _clearPicked();
+    notifyListeners();
+  }
+
+  void _clearPicked() {
+    _picked.clear();
+    selectionMode = false;
+  }
+
+  List<RemoteEntry> _visible(List<RemoteEntry> all) {
+    final hide = _prefs.settings.hideHiddenFiles;
+    final list =
+        hide ? all.where((e) => !e.name.startsWith('.')).toList(growable: false) : all;
+    if (_picked.isNotEmpty) {
+      final alive = list.map((e) => e.path).toSet();
+      _picked.removeWhere((p) => !alive.contains(p));
+    }
+    return list;
+  }
+
+  /// 批量下载：目录会被跳过（目录下载未实现），返回入队数量。
+  Future<int> downloadPicked() async {
+    final mount = activeMount;
+    if (mount == null) return 0;
+    final targets = pickedEntries.where((e) => !e.isDir).toList(growable: false);
+    for (final e in targets) {
+      await transfers.enqueueDownload(mount, e);
+    }
+    exitSelection();
+    return targets.length;
+  }
+
+  /// 批量删除：串行执行，全部尝试一遍后汇总失败项。
+  Future<int> deletePicked() async {
+    final d = _driver;
+    if (d == null) return 0;
+    final targets = pickedEntries.toList(growable: false);
+    final failures = <String>[];
+    var ok = 0;
+    for (final e in targets) {
+      try {
+        await d.removeEntry(e);
+        ok++;
+      } catch (err) {
+        failures.add('${e.name}：$err');
+      }
+    }
+    if (selected != null && _picked.contains(selected!.path)) selected = null;
+    exitSelection();
+    await refresh();
+    if (failures.isNotEmpty) {
+      throw DriverException(
+          '${failures.length} 项删除失败（成功 $ok 项）：${failures.first}');
+    }
+    return ok;
+  }
+
+  /// 读取远端文件内容（预览用）。
+  Future<Uint8List> readEntry(RemoteEntry entry) async {
+    final d = _driver;
+    if (d == null) throw DriverException('当前没有打开的挂载');
+    return d.readAll(entry.path);
   }
 
   Future<void> addMount(Mount mount, {String password = '', String proxyPassword = ''}) async {
@@ -209,6 +310,13 @@ class AppState extends ChangeNotifier {
     for (final p in localPaths) {
       await transfers.enqueueUpload(mount, p, current);
     }
+  }
+
+  /// 上传整个本地目录到当前目录（保留层级）。
+  Future<int> uploadFolder(String localDir) async {
+    final mount = activeMount;
+    if (mount == null || readOnly) return 0;
+    return transfers.enqueueUploadDir(mount, localDir, path);
   }
 
   void clearFinishedTasks() => transfers.clearFinished();
