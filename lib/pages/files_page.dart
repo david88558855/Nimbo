@@ -1,5 +1,9 @@
+import 'dart:io';
+
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../app/theme.dart';
 import '../core/format.dart';
@@ -384,13 +388,99 @@ Future<void> _newFolder(BuildContext context, AppState state) async {
   }
 }
 
-class _Body extends StatelessWidget {
+class _Body extends StatefulWidget {
   const _Body({required this.state, required this.wide});
   final AppState state;
   final bool wide;
 
   @override
+  State<_Body> createState() => _BodyState();
+}
+
+class _BodyState extends State<_Body> {
+  bool _hover = false;
+
+  @override
   Widget build(BuildContext context) {
+    final state = widget.state;
+    return DropTarget(
+      acceptedKinds: const {DropItemKind.file},
+      enabled: !state.readOnly,
+      onEnter: (_) => setState(() => _hover = true),
+      onLeave: () => setState(() => _hover = false),
+      onDrop: (details) async {
+        if (mounted) setState(() => _hover = false);
+        await _handleDrop(context, state, details);
+      },
+      child: Stack(
+        children: [
+          Positioned.fill(child: _content(context, state)),
+          if (_hover)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  margin: const EdgeInsets.fromLTRB(18, 2, 18, 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xF2EFF8FF),
+                    borderRadius: BorderRadius.circular(NimboRadius.panel),
+                    border: Border.all(color: NimboColors.sky600, width: 1.4),
+                  ),
+                  child: const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.upload_file_rounded, size: 26, color: NimboColors.sky600),
+                        SizedBox(height: 8),
+                        Text('松手即上传到当前目录',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: NimboColors.sky700)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 拖入的内容：桌面直接拿到本地路径；没有路径的平台回退成临时文件。
+  Future<void> _handleDrop(BuildContext context, AppState state, DropDetails details) async {
+    final paths = <String>[];
+    for (final item in details.items.whereType<DropFileItem>()) {
+      final local = item.localPath;
+      if (local != null && local.isNotEmpty) {
+        paths.add(local);
+        continue;
+      }
+      try {
+        final tmp = await getTemporaryDirectory();
+        final f = File('${tmp.path}${Platform.pathSeparator}${item.name}');
+        await f.writeAsBytes(await item.file.readAsBytes());
+        paths.add(f.path);
+      } catch (_) {
+        // 单个条目不可读就跳过，不影响同一批的其他文件
+      }
+    }
+    if (paths.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('没有识别到可上传的文件')));
+      }
+      return;
+    }
+    await state.uploadFiles(paths);
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('已加入上传队列：${paths.length} 个文件')));
+    }
+  }
+
+  Widget _content(BuildContext context, AppState state) {
+    final wide = widget.wide;
     if (state.error != null) {
       return EmptyBlock(
         icon: Icons.error_outline_rounded,
@@ -405,7 +495,7 @@ class _Body extends StatelessWidget {
       return EmptyBlock(
         icon: Icons.folder_open_rounded,
         title: '这里还没有文件',
-        subtitle: state.readOnly ? '该挂载为只读' : '新建一个文件夹，或从其他挂载下载到这里',
+        subtitle: state.readOnly ? '该挂载为只读' : '新建一个文件夹，或把文件拖到这里上传',
       );
     }
     return Container(
