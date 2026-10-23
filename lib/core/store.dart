@@ -49,15 +49,21 @@ class AppSettings {
   bool hideHiddenFiles = false;
   bool confirmDelete = true;
 
+  /// 并发传输数：每个任务独占一条连接。
+  int maxConcurrent = 2;
+
   Map<String, dynamic> toJson() => {
         'hideHiddenFiles': hideHiddenFiles,
         'confirmDelete': confirmDelete,
+        'maxConcurrent': maxConcurrent,
       };
 
   void load(Map<String, dynamic>? j) {
     if (j == null) return;
     hideHiddenFiles = j['hideHiddenFiles'] == true;
     confirmDelete = j['confirmDelete'] != false;
+    final c = (j['maxConcurrent'] as num?)?.toInt() ?? 2;
+    maxConcurrent = c < 1 ? 1 : (c > 4 ? 4 : c);
   }
 }
 

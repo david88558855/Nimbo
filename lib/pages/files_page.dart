@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
@@ -32,7 +33,7 @@ class FilesPage extends StatelessWidget {
     final wide = MediaQuery.sizeOf(context).width >= 900;
     return Column(
       children: [
-        _Header(state: state, onAddMount: onAddMount),
+        _Header(state: state, onAddMount: onAddMount, compact: !wide),
         if (state.loading)
           const LinearProgressIndicator(
             minHeight: 2,
@@ -56,9 +57,10 @@ class FilesPage extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.state, required this.onAddMount});
+  const _Header({required this.state, required this.onAddMount, this.compact = false});
   final AppState state;
   final VoidCallback onAddMount;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -142,19 +144,51 @@ class _Header extends StatelessWidget {
               ),
               const Spacer(),
               if (!state.readOnly)
-                NimboButton('新建文件夹',
+                NimboButton('上传',
+                    kind: NimboButtonKind.primary,
+                    icon: Icons.upload_rounded,
+                    onPressed: () => _upload(context, state)),
+              if (!state.readOnly) const SizedBox(width: 7),
+              if (!state.readOnly)
+                NimboButton(compact ? '新建' : '新建文件夹',
                     icon: Icons.create_new_folder_outlined,
                     onPressed: () => _newFolder(context, state)),
-              const SizedBox(width: 7),
-              NimboButton('挂载管理',
-                  kind: NimboButtonKind.ghost,
-                  icon: Icons.dns_outlined,
-                  onPressed: onAddMount),
+              if (!compact) ...[
+                const SizedBox(width: 7),
+                NimboButton('挂载管理',
+                    kind: NimboButtonKind.ghost,
+                    icon: Icons.dns_outlined,
+                    onPressed: onAddMount),
+              ],
             ],
           ),
         ],
       ),
     );
+  }
+}
+
+Future<void> _upload(BuildContext context, AppState state) async {
+  try {
+    final result = await FilePicker.platform.pickFiles(allowMultiple: true);
+    if (result == null) return;
+    final paths = <String>[];
+    for (final f in result.files) {
+      final p = f.path;
+      if (p != null && p.isNotEmpty) paths.add(p);
+    }
+    if (paths.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('没有拿到可读取的本地路径')));
+      }
+      return;
+    }
+    await state.uploadFiles(paths);
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
   }
 }
 
@@ -594,8 +628,24 @@ class _TaskStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final running = state.tasks.where((t) => t.status == TransferStatus.running).toList();
+    final runners = state.tasks.where((t) => t.status == TransferStatus.running).toList();
+    final queued = state.tasks.where((t) => t.status == TransferStatus.queued).length;
     final latest = state.tasks.first;
+    final failed = latest.status == TransferStatus.failed;
+    final done = latest.status == TransferStatus.done;
+    final color = failed
+        ? NimboColors.danger
+        : done
+            ? NimboColors.ok
+            : NimboColors.sky600;
+
+    final detail = failed
+        ? (latest.error ?? '失败')
+        : done
+            ? '已完成 · ${humanBytes(latest.total)}'
+            : '${humanBytes(latest.transferred)} / ${latest.total > 0 ? humanBytes(latest.total) : '未知'}'
+                '${latest.speed > 0 ? ' · ${humanSpeed(latest.speed)}' : ''}';
+
     return Container(
       height: 58,
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -605,10 +655,16 @@ class _TaskStrip extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.swap_vert_rounded, size: 16, color: NimboColors.sky600),
+          Icon(
+            latest.dir == TransferDir.upload ? Icons.upload_rounded : Icons.download_rounded,
+            size: 16,
+            color: NimboColors.sky600,
+          ),
           const SizedBox(width: 8),
           Text(
-            running.isEmpty ? '最近任务' : '传输中 ${running.length}',
+            runners.isEmpty
+                ? '最近任务'
+                : '传输中 ${runners.length}${queued > 0 ? ' · 排队 $queued' : ''}',
             style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: NimboColors.ink),
           ),
           const SizedBox(width: 14),
@@ -617,48 +673,71 @@ class _TaskStrip extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(latest.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(latest.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      latest.dir == TransferDir.upload
+                          ? Icons.north_east_rounded
+                          : Icons.south_west_rounded,
+                      size: 10,
+                      color: NimboColors.ink4,
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 5),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(99),
                   child: LinearProgressIndicator(
-                    value: latest.status == TransferStatus.done ? 1 : latest.progress,
+                    value: done ? 1 : latest.progress,
                     minHeight: 4,
                     backgroundColor: NimboColors.line2,
-                    color: latest.status == TransferStatus.failed
-                        ? NimboColors.danger
-                        : NimboColors.sky600,
+                    color: color,
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(width: 14),
-          Text(
-            latest.status == TransferStatus.failed
-                ? (latest.error ?? '失败')
-                : '${humanBytes(latest.transferred)} / ${humanBytes(latest.total)}',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: latest.status == TransferStatus.failed
-                  ? NimboColors.dangerInk
-                  : NimboColors.ink3,
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 260),
+            child: Text(
+              detail,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: failed ? NimboColors.dangerInk : NimboColors.ink3,
+              ),
             ),
           ),
-          const SizedBox(width: 8),
-          InkWell(
-            onTap: state.clearFinishedTasks,
-            child: const Padding(
-              padding: EdgeInsets.all(6),
-              child: Icon(Icons.close_rounded, size: 14, color: NimboColors.ink4),
-            ),
-          ),
+          const SizedBox(width: 4),
+          if (latest.status == TransferStatus.running || latest.status == TransferStatus.queued)
+            _iconBtn(Icons.pause_rounded, '暂停', () => state.transfers.toggle(latest)),
+          if (latest.status == TransferStatus.paused || failed)
+            _iconBtn(Icons.refresh_rounded, '重试', () => state.transfers.toggle(latest)),
+          _iconBtn(Icons.close_rounded, '移除', () => state.transfers.cancel(latest)),
         ],
       ),
     );
   }
+
+  Widget _iconBtn(IconData icon, String tip, VoidCallback onTap) => Tooltip(
+        message: tip,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Icon(icon, size: 14, color: NimboColors.ink4),
+          ),
+        ),
+      );
 }

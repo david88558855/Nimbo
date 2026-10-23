@@ -1,16 +1,37 @@
-import 'dart:io';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../core/format.dart';
 import '../core/models.dart';
 import '../core/store.dart';
 import '../drivers/factory.dart';
 import '../drivers/storage_driver.dart';
+import 'transfer_manager.dart';
 
 class AppState extends ChangeNotifier {
+  AppState() {
+    transfers.addListener(_onTransfers);
+  }
+
   final Prefs _prefs = Prefs.instance;
+
+  /// 传输队列与当前浏览会话解耦：切换挂载不会打断正在跑的传输。
+  final TransferManager transfers = TransferManager();
+
+  int _seenDone = 0;
+
+  /// 传输层每次变动都要刷新界面；此外在有任务完成时重列当前目录，
+  /// 让刚上传的文件直接出现在列表里。
+  void _onTransfers() {
+    notifyListeners();
+    final doneCount =
+        transfers.tasks.where((t) => t.status == TransferStatus.done).length;
+    if (doneCount != _seenDone) {
+      _seenDone = doneCount;
+      if (hasMount) unawaited(refresh());
+    }
+  }
 
   List<Mount> get mounts => _prefs.mounts;
   Mount? get activeMount => _prefs.activeMount;
@@ -25,13 +46,22 @@ class AppState extends ChangeNotifier {
   bool loading = false;
   String? error;
   RemoteEntry? selected;
-  final List<TransferTask> tasks = [];
+
+  List<TransferTask> get tasks => transfers.tasks;
 
   bool get hasMount => activeMount != null;
   bool get readOnly => activeMount?.readOnly ?? false;
 
+  @override
+  void dispose() {
+    transfers.removeListener(_onTransfers);
+    transfers.dispose();
+    super.dispose();
+  }
+
   Future<void> boot() async {
     await _prefs.load();
+    transfers.maxConcurrent = _prefs.settings.maxConcurrent;
     final mount = activeMount;
     if (mount != null) {
       await open(mount);
@@ -121,6 +151,7 @@ class AppState extends ChangeNotifier {
     final isActive = mount.id == _prefs.activeMountId;
     _prefs.mounts.removeWhere((m) => m.id == mount.id);
     await SecureStore.delete(mount.id);
+    transfers.dropMount(mount.id);
     if (isActive) {
       _prefs.activeMountId = _prefs.mounts.isEmpty ? null : _prefs.mounts.first.id;
       await _driver?.close();
@@ -163,60 +194,28 @@ class AppState extends ChangeNotifier {
     await refresh();
   }
 
-  Future<Directory> _downloadDir() async {
-    if (Platform.isWindows) {
-      final home = Platform.environment['USERPROFILE'];
-      if (home != null && home.isNotEmpty) {
-        final d = Directory('$home\\Downloads\\Nimbo');
-        if (!d.existsSync()) d.createSync(recursive: true);
-        return d;
-      }
-    }
-    final base = await getApplicationDocumentsDirectory();
-    final d = Directory('${base.path}${Platform.pathSeparator}Nimbo');
-    if (!d.existsSync()) d.createSync(recursive: true);
-    return d;
-  }
-
+  /// 下载到本地下载目录（排队执行，不阻塞当前浏览）。
   Future<void> download(RemoteEntry entry) async {
-    final d = _driver;
     final mount = activeMount;
-    if (d == null || mount == null || entry.isDir) return;
-    final dir = await _downloadDir();
-    final localPath = '${dir.path}${Platform.pathSeparator}${entry.name}';
-    final task = TransferTask(
-      id: '${DateTime.now().microsecondsSinceEpoch}',
-      mountName: mount.name,
-      name: entry.name,
-      remotePath: entry.path,
-      localPath: localPath,
-      total: entry.size,
-      status: TransferStatus.running,
-    );
-    tasks.insert(0, task);
-    notifyListeners();
-    try {
-      await d.downloadTo(entry.path, localPath, onProgress: (done, total) {
-        task.transferred = done;
-        if (total > 0) task.total = total;
-        notifyListeners();
-      });
-      task.status = TransferStatus.done;
-      task.transferred = task.total > 0 ? task.total : task.transferred;
-    } catch (e) {
-      task.status = TransferStatus.failed;
-      task.error = e is DriverException ? e.message : '$e';
-    }
-    notifyListeners();
+    if (mount == null || entry.isDir) return;
+    await transfers.enqueueDownload(mount, entry);
   }
 
-  void clearFinishedTasks() {
-    tasks.removeWhere((t) => t.status == TransferStatus.done);
-    notifyListeners();
+  /// 上传本地文件到当前目录。
+  Future<void> uploadFiles(List<String> localPaths) async {
+    final mount = activeMount;
+    if (mount == null || readOnly || localPaths.isEmpty) return;
+    final current = path;
+    for (final p in localPaths) {
+      await transfers.enqueueUpload(mount, p, current);
+    }
   }
+
+  void clearFinishedTasks() => transfers.clearFinished();
 
   Future<void> updateSettings(void Function(AppSettings s) change) async {
     change(_prefs.settings);
+    transfers.maxConcurrent = _prefs.settings.maxConcurrent;
     await _prefs.save();
     notifyListeners();
   }

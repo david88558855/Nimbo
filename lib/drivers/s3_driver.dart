@@ -125,7 +125,6 @@ class S3Driver extends StorageDriver {
     Map<String, String>? query,
     dynamic body,
     Map<String, String>? signHeaders,
-    bool unsignedPayload = false,
     ResponseType? responseType,
     ProgressFn? onProgress,
     int? contentLength,
@@ -143,7 +142,11 @@ class S3Driver extends StorageDriver {
     qp.sort((a, b) => a.key == b.key ? a.value.compareTo(b.value) : a.key.compareTo(b.key));
     final canonicalQuery = qp.map((e) => '${e.key}=${e.value}').join('&');
 
-    final payloadHash = unsignedPayload ? 'UNSIGNED-PAYLOAD' : _emptyHash;
+    // SigV4 的 payload hash 必须与真实字节一致：明文 HTTP 下 AWS 不接受
+    // UNSIGNED-PAYLOAD，所以统一对 body 求 sha256（分片只有 8 MB，开销可忽略）。
+    final payload = _payloadBytes(body);
+    final payloadHash = payload == null ? _emptyHash : _hex(sha256.convert(payload).bytes);
+
     final signed = <String, String>{
       'host': _hostHeader(),
       'x-amz-content-sha256': payloadHash,
@@ -193,6 +196,22 @@ class S3Driver extends StorageDriver {
     ));
     _check(res, method);
     return res;
+  }
+
+  /// 参与签名的原始字节（null 表示空 body）。
+  static List<int>? _payloadBytes(dynamic body) {
+    if (body == null) return null;
+    if (body is Uint8List) return body;
+    if (body is List<int>) return body;
+    if (body is String) return utf8.encode(body);
+    return null;
+  }
+
+  static String _bodyText(Response<dynamic> res) {
+    final data = res.data;
+    if (data is String) return data;
+    if (data is List<int>) return utf8.decode(data, allowMalformed: true);
+    return '';
   }
 
   String? _firstText(XmlElement e, String name) {
@@ -305,21 +324,107 @@ class S3Driver extends StorageDriver {
     }
   }
 
+  /// 分片上传：> 8 MB 走 multipart，取消/失败都会 Abort，避免留下垃圾分片。
+  static const _defaultPart = 8 * 1024 * 1024;
+
   @override
   Future<void> uploadFile(String localFile, String remotePath, {ProgressFn? onProgress}) async {
     final file = File(localFile);
     final length = await file.length();
-    if (length > 128 * 1024 * 1024) {
-      throw DriverException('超过 128 MB 的分片上传将在下一阶段支持', kind: DriverErrorKind.unsupported);
+    final key = _key(remotePath);
+    final partSize = _choosePartSize(length);
+
+    if (length <= partSize) {
+      final bytes = await file.readAsBytes();
+      await _send<dynamic>(
+        'PUT',
+        _requestPath(key),
+        body: bytes,
+        contentLength: length,
+        onProgress: onProgress,
+      );
+      onProgress?.call(length, length);
+      return;
     }
-    final bytes = await file.readAsBytes();
+    await _multipartUpload(file, key, length, partSize, onProgress);
+  }
+
+  /// 控制分片数在 900 以内（协议上限 10000，留足余量给小文件抖动）。
+  int _choosePartSize(int length) {
+    var size = _defaultPart;
+    while (length > size * 900) {
+      size *= 2;
+    }
+    return size;
+  }
+
+  Future<void> _multipartUpload(
+    File file,
+    String key,
+    int length,
+    int partSize,
+    ProgressFn? onProgress,
+  ) async {
+    final init = await _send<dynamic>('POST', _requestPath(key), query: {'uploads': ''});
+    String? uploadId;
+    try {
+      uploadId = _firstText(XmlDocument.parse(_bodyText(init)).rootElement, 'UploadId');
+    } catch (_) {}
+    if (uploadId == null || uploadId.isEmpty) {
+      throw DriverException('初始化分片上传失败：响应里没有 UploadId', kind: DriverErrorKind.unknown);
+    }
+
+    final etags = <String>[];
+    final raf = await file.open();
+    try {
+      var offset = 0;
+      var partNumber = 1;
+      while (offset < length) {
+        final remain = length - offset;
+        final chunkLen = remain < partSize ? remain : partSize;
+        final chunk = await raf.read(chunkLen);
+        if (chunk.isEmpty) break;
+        final res = await _send<dynamic>(
+          'PUT',
+          _requestPath(key),
+          query: {'partNumber': '$partNumber', 'uploadId': uploadId},
+          body: chunk,
+          contentLength: chunk.length,
+          onProgress: onProgress == null
+              ? null
+              : (int sent, int _) => onProgress(offset + sent, length),
+        );
+        final etag = res.headers.value('etag');
+        if (etag == null || etag.isEmpty) {
+          throw DriverException('第 $partNumber 片没有返回 ETag', kind: DriverErrorKind.unknown);
+        }
+        etags.add(etag);
+        offset += chunk.length;
+        partNumber++;
+        onProgress?.call(offset, length);
+      }
+    } catch (e) {
+      // 任何中断（含用户暂停）都清理未完成的分片上传
+      try {
+        await _send<dynamic>('DELETE', _requestPath(key), query: {'uploadId': uploadId});
+      } catch (_) {}
+      rethrow;
+    } finally {
+      await raf.close();
+    }
+
+    final sb = StringBuffer('<CompleteMultipartUpload>');
+    for (var i = 0; i < etags.length; i++) {
+      sb.write('<Part><PartNumber>${i + 1}</PartNumber><ETag>${etags[i]}</ETag></Part>');
+    }
+    sb.write('</CompleteMultipartUpload>');
+    final body = sb.toString();
     await _send<dynamic>(
-      'PUT',
-      _requestPath(_key(remotePath)),
-      body: bytes,
-      unsignedPayload: true,
-      contentLength: length,
-      onProgress: onProgress,
+      'POST',
+      _requestPath(key),
+      query: {'uploadId': uploadId},
+      body: body,
+      contentLength: utf8.encode(body).length,
     );
   }
 
@@ -328,7 +433,7 @@ class S3Driver extends StorageDriver {
     final key = _key(path);
     if (key.isEmpty) return;
     await _send<dynamic>('PUT', _requestPath(key, dir: true),
-        body: Uint8List(0), unsignedPayload: true, contentLength: 0);
+        body: Uint8List(0), contentLength: 0);
   }
 
   @override
@@ -361,7 +466,6 @@ class S3Driver extends StorageDriver {
       'PUT',
       _requestPath(dstKey),
       body: Uint8List(0),
-      unsignedPayload: true,
       contentLength: 0,
       signHeaders: {'x-amz-copy-source': copySource},
     );

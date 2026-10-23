@@ -29,29 +29,48 @@ lib/
   drivers/               五个存储驱动 + 代理连接层
     storage_driver.dart  统一接口（list / read / write / move / space）
     net.dart             HTTP CONNECT / SOCKS5 连接层（Socket + HttpClient 适配）
+    sftp_socket.dart     把代理隧道包装成 dartssh2 的 SSHSocket
   pages/                 桌面三栏 / 移动底部 Tab 的自适应外壳与各页面
-  state/                 Riverpod 控制器（挂载、文件、传输）
+  state/                 app_state（浏览会话）+ transfer_manager（传输队列）
 design/                  设计稿（单文件 HTML）
 docs/                    技术分析
 ```
 
-## 当前状态（P0，已通过云端构建）
+## 当前状态（P1，已通过云端构建）
 
-已完成并编译通过：
+**存储与连接**
 
-- 五类存储驱动：FTP（自实现协议，控制/数据连接均可走代理）、SFTP（dartssh2）、
+- 五类存储驱动：FTP（自实现协议，控制与数据连接都可走代理）、SFTP（dartssh2）、
   S3 兼容（自实现 SigV4，path-style / virtual-hosted 可切）、WebDAV（PROPFIND/MKCOL/MOVE）、本地与映射盘
-- 按挂载一对一代理：HTTP CONNECT 与 SOCKS5，`connectionFactory` 直接接管 HTTP 栈
-- 挂载管理：协议表单、连接测试、只读、凭据进系统安全存储
-- 文件浏览：面包屑、列表、详情栏、新建文件夹、重命名、删除、下载
-- 传输：下载队列与进度；Windows 便携 `userdata/prefs.json`
+- 按挂载一对一代理：HTTP CONNECT 与 SOCKS5；**五个协议全部经隧道**
+  （HTTP 类走 `connectionFactory`，FTP 走 Socket 工厂，SFTP 走 `ProxySshSocket`）
 
-已知限制（下一阶段）：
+**传输（P1 补齐）**
+
+- 上传闭环：`file_picker` 多选 → 入队 → 目标目录自动创建（S3 除外，键即路径）
+- 队列：并发数可调（1–4），**每个任务独占一条连接**，因此可以同时上传与下载、
+  也可以跨挂载并行；FTP 不会被自身的单控制连接卡住
+- 每个任务：实时速度（平滑后）、剩余时间、暂停 / 继续 / 取消 / 重试
+- 暂停语义：立即中断当前读写（在进度回调处抛出），**半截本地文件会被删除**，
+  继续时从头开始（Range 断点续传未做，见下）
+- S3 分片上传：> 8 MB 自动 multipart，分片数控制在 900 以内；
+  任一片失败或用户暂停都会 `AbortMultipartUpload` 清理，不留垃圾分片
+- SFTP 流式上下行：分块读写，不再有 64 MB 内存上限
+- 空文件、大文件、中文名、非法文件名字符（Windows 落盘前替换）都已处理
+
+**界面**
+
+- 桌面：236 导航三栏（挂载切换器、导航、挂载列表、当前挂载的代理状态）+ 文件区 + 详情栏 + 底部传输条
+- 移动：底部四 Tab；文件页头部按宽度收敛按钮，避免窄屏溢出
+- 传输页：进行中 / 已结束分组，逐任务操作，总速度汇总
+
+**已知限制（下一阶段）**
 
 | 项 | 现状 |
 |---|---|
-| 上传 | 驱动已实现 `uploadFile`，UI 尚未接入文件选择器 |
-| SFTP 经代理 | 需自定义 `SSHSocket` 复用隧道，当前请直连 |
-| S3 大文件 | >128 MB 走内存上传，分片上传未接 |
-| SFTP 大文件 | >64 MB 受限（未做流式） |
-| 预览 / 托盘 / 拖拽 | 未实现 |
+| 断点续传 | 暂停后从头开始；HTTP Range / S3 分片续传未做 |
+| S3 分片并发 | 分片串行上传（正确性优先），未做多片并发 |
+| SFTP 容量 | 未取 `statvfs`，容量显示「未知」 |
+| 预览 / 托盘 / 拖拽上传 | 未实现 |
+| 目录上传、多选批量操作 | 未实现 |
+| 传输记录持久化 | 重启后清空 |

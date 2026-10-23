@@ -38,7 +38,69 @@ class SettingsPage extends StatelessWidget {
               const _Label('传输'),
               const SizedBox(height: 10),
               _row('下载目录', 'Windows：用户下载目录下的 Nimbo；Android：应用文档目录'),
-              _row('并发与限速', '下一阶段接入'),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const SizedBox(
+                    width: 92,
+                    child: Text('并发任务',
+                        style: TextStyle(
+                            fontSize: 10.5, fontWeight: FontWeight.w600, color: NimboColors.ink3)),
+                  ),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF3F8FC),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: NimboColors.line),
+                    ),
+                    padding: const EdgeInsets.all(2),
+                    child: Row(
+                      children: [
+                        for (final n in [1, 2, 3, 4])
+                          InkWell(
+                            onTap: () => state.updateSettings((s) => s.maxConcurrent = n),
+                            borderRadius: BorderRadius.circular(6),
+                            child: Container(
+                              width: 30,
+                              height: 24,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                color: state.settings.maxConcurrent == n
+                                    ? Colors.white
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(6),
+                                boxShadow: state.settings.maxConcurrent == n
+                                    ? const [
+                                        BoxShadow(
+                                            color: Color(0x140D1B2A),
+                                            blurRadius: 4,
+                                            offset: Offset(0, 1))
+                                      ]
+                                    : null,
+                              ),
+                              child: Text('$n',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    color: state.settings.maxConcurrent == n
+                                        ? NimboColors.sky700
+                                        : NimboColors.ink3,
+                                  )),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text('每个任务独占一条连接；FTP 建议 1–2',
+                        style: TextStyle(
+                            fontSize: 9.5, fontWeight: FontWeight.w600, color: NimboColors.ink4)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              _row('断点续传', '暂停后重新开始（S3 分片会 Abort 清理，不留碎片）'),
             ],
           ),
         ),
@@ -62,8 +124,9 @@ class SettingsPage extends StatelessWidget {
             children: [
               const _Label('关于'),
               const SizedBox(height: 10),
-              _row('版本', '0.1.0 (P0 骨架)'),
+              _row('版本', '0.2.0 (P1 传输闭环)'),
               _row('协议', 'FTP · SFTP · S3 兼容 · WebDAV · 本地与映射盘'),
+              _row('代理', 'HTTP CONNECT / SOCKS5，五个协议全部接入（含 SFTP）'),
               _row('构建', 'GitHub Actions 云端编译，无本地构建产物'),
             ],
           ),

@@ -1,7 +1,7 @@
 name: nimbo
 description: "Nimbo — 多协议网盘客户端（FTP / SFTP / S3 / WebDAV / 本地），Windows + Android。"
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.2.0+2
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -16,6 +16,7 @@ dependencies:
   path_provider: ^2.1.4
   flutter_secure_storage: ^9.2.2
   dartssh2: ^4.1.0
+  file_picker: ^8.1.0
 
 dev_dependencies:
   flutter_test:

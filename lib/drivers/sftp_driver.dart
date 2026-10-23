@@ -5,10 +5,14 @@ import 'package:dartssh2/dartssh2.dart';
 
 import '../core/format.dart';
 import '../core/models.dart';
+import 'sftp_socket.dart';
 import 'storage_driver.dart';
 
 /// SFTP：dartssh2 纯 Dart 实现。
-/// P0 限制：直连；经代理复用同一隧道需要自定义 SSHSocket，放在下一阶段。
+///
+/// 代理：直连走系统原生 socket，开启代理时把 [ProxyTunnel] 的隧道
+/// 包成 SSHSocket 交给 SSH 层——与 FTP / HTTP 类协议共用同一套握手代码。
+/// 传输：走 SftpFile 的分块读写，不再有内存上限。
 class SftpDriver extends StorageDriver {
   SftpDriver(super.mount, {required this.password, required this.proxy});
 
@@ -18,8 +22,6 @@ class SftpDriver extends StorageDriver {
   SSHClient? _client;
   SftpClient? _sftp;
 
-  static const _memoryLimit = 64 * 1024 * 1024;
-
   @override
   String get scheme => 'sftp';
 
@@ -28,17 +30,13 @@ class SftpDriver extends StorageDriver {
 
   @override
   Future<void> connect() async {
-    if (proxy.enabled) {
-      throw DriverException(
-        'SFTP 经代理连接将在下一阶段支持：当前请先直连该主机',
-        kind: DriverErrorKind.unsupported,
-      );
-    }
     final host = mount.host.trim();
     if (host.isEmpty) throw DriverException('请填写主机地址');
     final port = mount.port == 0 ? 22 : mount.port;
     try {
-      final socket = await SSHSocket.connect(host, port);
+      final socket = proxy.enabled
+          ? await ProxySshSocket.connect(host, port, proxy)
+          : await SSHSocket.connect(host, port);
       final client = SSHClient(
         socket,
         username: mount.username,
@@ -49,10 +47,16 @@ class SftpDriver extends StorageDriver {
     } catch (e) {
       final msg = '$e';
       final lower = msg.toLowerCase();
-      if (lower.contains('auth') || lower.contains('password') || lower.contains('permission denied')) {
+      if (lower.contains('auth') ||
+          lower.contains('password') ||
+          lower.contains('permission denied')) {
         throw DriverException('认证失败：$msg', kind: DriverErrorKind.auth);
       }
-      throw DriverException('SFTP 连接失败：$msg', kind: DriverErrorKind.network);
+      if (e is DriverException) rethrow;
+      throw DriverException(
+        proxy.enabled ? 'SFTP 连接失败（经代理 ${proxy.label}）：$msg' : 'SFTP 连接失败：$msg',
+        kind: DriverErrorKind.network,
+      );
     }
   }
 
@@ -125,19 +129,23 @@ class SftpDriver extends StorageDriver {
   @override
   Future<void> downloadTo(String remotePath, String localFile, {ProgressFn? onProgress}) async {
     final target = normalizePath(remotePath);
-    final stat = await _s.stat(target);
-    final total = stat.size ?? 0;
-    if (total > _memoryLimit) {
-      throw DriverException('超过 64 MB 的 SFTP 下载将在下一阶段支持流式传输',
-          kind: DriverErrorKind.unsupported);
-    }
-    final bytes = await readAll(target);
-    final sink = File(localFile).openWrite();
+    var total = 0;
     try {
-      sink.add(bytes);
-      onProgress?.call(bytes.length, total);
+      final stat = await _s.stat(target);
+      total = stat.size ?? 0;
+    } catch (_) {}
+    final handle = await _s.open(target);
+    final sink = File(localFile).openWrite();
+    var done = 0;
+    try {
+      await for (final chunk in handle.read()) {
+        sink.add(chunk);
+        done += chunk.length;
+        onProgress?.call(done, total > 0 ? total : done);
+      }
     } finally {
       await sink.close();
+      await handle.close();
     }
   }
 
@@ -145,19 +153,20 @@ class SftpDriver extends StorageDriver {
   Future<void> uploadFile(String localFile, String remotePath, {ProgressFn? onProgress}) async {
     final file = File(localFile);
     final length = await file.length();
-    if (length > _memoryLimit) {
-      throw DriverException('超过 64 MB 的 SFTP 上传将在下一阶段支持流式传输',
-          kind: DriverErrorKind.unsupported);
-    }
-    final bytes = await file.readAsBytes();
     final target = normalizePath(remotePath);
     final handle = await _s.open(
       target,
       mode: SftpFileOpenMode.create | SftpFileOpenMode.write | SftpFileOpenMode.truncate,
     );
+    var done = 0;
     try {
-      await handle.writeBytes(bytes);
-      onProgress?.call(bytes.length, length);
+      // 用 openRead 的分块（默认 64 KB）逐段写，天然可中断、内存占用恒定。
+      await for (final chunk in file.openRead()) {
+        await handle.writeBytes(chunk, offset: done);
+        done += chunk.length;
+        onProgress?.call(done, length);
+      }
+      if (length == 0) onProgress?.call(0, 0);
     } finally {
       await handle.close();
     }

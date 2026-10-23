@@ -30,7 +30,8 @@ Future<StorageDriver> createDriver(Mount mount) async {
 /// 连接测试：只连一次、列一次根目录，然后释放。
 Future<int> testMount(Mount mount, {String? password, String? proxyPassword}) async {
   final resolved = mount.proxy.copyWith(password: proxyPassword ?? mount.proxy.password);
-  final probeMount = mount..proxy = resolved;
+  // 不能直接改调用方的 mount：会把临时输入的凭据写进已保存的挂载对象
+  final probeMount = Mount.fromJson(mount.toJson())..proxy = resolved;
   final StorageDriver driver;
   switch (probeMount.protocol) {
     case MountProtocol.local:

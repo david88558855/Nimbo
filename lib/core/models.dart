@@ -239,27 +239,67 @@ extension TransferStatusX on TransferStatus {
       };
 }
 
+enum TransferDir { upload, download }
+
+extension TransferDirX on TransferDir {
+  String get label => this == TransferDir.upload ? '上传' : '下载';
+}
+
+/// 一个传输任务。由 [TransferManager] 持有并按队列推进。
+///
+/// 每个任务自带一条独立连接（协议侧互不阻塞），因此上传与下载
+/// 可以同时进行，也可以针对不同挂载并行。
 class TransferTask {
   TransferTask({
     required this.id,
+    required this.mountId,
     required this.mountName,
     required this.name,
     required this.remotePath,
     required this.localPath,
+    required this.dir,
     this.total = 0,
     this.status = TransferStatus.queued,
     this.error,
-  });
+    DateTime? createdAt,
+  }) : createdAt = createdAt ?? DateTime.now();
 
   final String id;
+  final String mountId;
   final String mountName;
   final String name;
   final String remotePath;
   final String localPath;
+  final TransferDir dir;
+  final DateTime createdAt;
+
   int total;
   int transferred = 0;
   TransferStatus status;
   String? error;
 
+  /// 平滑后的瞬时速度（字节/秒）。
+  double speed = 0;
+  DateTime? finishedAt;
+
+  /// 用户请求中止（暂停 / 取消）：进度回调会抛出，从而中断驱动内部的循环。
+  bool abort = false;
+
+  // 速度采样，仅运行期使用。
+  int sampleBytes = 0;
+  DateTime? sampleAt;
+
+  bool get isRunning => status == TransferStatus.running;
+  bool get isActive =>
+      status == TransferStatus.running || status == TransferStatus.queued;
+
   double get progress => total <= 0 ? 0 : (transferred / total).clamp(0.0, 1.0);
+
+  /// 剩余时间，速度未知时返回 null。
+  Duration? get remaining {
+    if (speed <= 0 || total <= 0 || transferred >= total) return null;
+    final secs = ((total - transferred) / speed).round();
+    if (secs <= 0 || secs > 86400 * 7) return null;
+    return Duration(seconds: secs);
+  }
 }
