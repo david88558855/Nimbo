@@ -279,9 +279,12 @@ HttpClient buildHttpClient(ProxyConfig? proxy) {
       );
     }
   } else {
-    client.connectionFactory = (uri, proxyHost, proxyPort) async {
-      final socket = await ProxyTunnel.connect(uri.host, uri.port, p);
-      return ConnectionTask.fromSocket(socket, () {});
+    client.connectionFactory = (uri, proxyHost, proxyPort) {
+      // ConnectionTask.fromSocket 接收 Future<Socket>，隧道建立与握手都在其中完成
+      return ConnectionTask.fromSocket(
+        ProxyTunnel.connect(uri.host, uri.port, p),
+        () {},
+      );
     };
   }
   return client;
