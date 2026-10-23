@@ -27,6 +27,19 @@ class WebDavDriver extends StorageDriver {
   @override
   Capability get caps => const Capability(space: true);
 
+  @override
+  ResumeSupport get resume => ResumeSupport.download;
+
+  @override
+  Future<int> sizeOf(String path) async {
+    try {
+      final res = await _dio.head<dynamic>(_uri(path).toString());
+      return int.tryParse(res.headers.value('content-length') ?? '') ?? -1;
+    } catch (_) {
+      return -1;
+    }
+  }
+
   String get _rootPath {
     final p = mount.rootPath.trim();
     if (p.isEmpty || p == '/') return '';
@@ -199,17 +212,25 @@ class WebDavDriver extends StorageDriver {
   }
 
   @override
-  Future<void> downloadTo(String remotePath, String localFile, {ProgressFn? onProgress}) async {
+  Future<void> downloadTo(String remotePath, String localFile,
+      {ProgressFn? onProgress, int resumeFrom = 0}) async {
     final res = await _dio.get<ResponseBody>(
       _uri(remotePath).toString(),
-      options: Options(responseType: ResponseType.stream),
+      options: Options(
+        responseType: ResponseType.stream,
+        headers: {if (resumeFrom > 0) 'Range': 'bytes=$resumeFrom-'},
+      ),
     );
     _check(res, '下载');
     final body = res.data;
     if (body == null) throw DriverException('响应为空', kind: DriverErrorKind.network);
-    final total = int.tryParse(res.headers.value('content-length') ?? '') ?? 0;
-    final sink = File(localFile).openWrite();
-    var done = 0;
+    // 只有真正拿到 206 才能续写；服务器忽略 Range 返回 200 时必须从头覆盖。
+    final partial = resumeFrom > 0 && res.statusCode == 206;
+    final remain = int.tryParse(res.headers.value('content-length') ?? '') ?? 0;
+    final total = partial ? resumeFrom + remain : remain;
+    final sink =
+        File(localFile).openWrite(mode: partial ? FileMode.append : FileMode.write);
+    var done = partial ? resumeFrom : 0;
     try {
       await for (final chunk in body.stream) {
         sink.add(chunk);
@@ -222,7 +243,9 @@ class WebDavDriver extends StorageDriver {
   }
 
   @override
-  Future<void> uploadFile(String localFile, String remotePath, {ProgressFn? onProgress}) async {
+  Future<void> uploadFile(String localFile, String remotePath,
+      {ProgressFn? onProgress, int resumeFrom = 0}) async {
+    // WebDAV 没有标准的追加写：中断后整份重传（下载侧仍支持 Range 续传）。
     final file = File(localFile);
     final length = await file.length();
     final res = await _dio.put<dynamic>(

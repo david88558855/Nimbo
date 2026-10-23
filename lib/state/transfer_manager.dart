@@ -145,10 +145,9 @@ class TransferManager extends ChangeNotifier {
   void resume(TransferTask task) {
     if (task.status == TransferStatus.running || task.status == TransferStatus.done) return;
     task.abort = false;
-    task.transferred = 0;
     task.speed = 0;
     task.sampleAt = null;
-    task.sampleBytes = 0;
+    task.sampleBytes = task.transferred;
     task.error = null;
     task.status = TransferStatus.queued;
     _pump();
@@ -156,9 +155,11 @@ class TransferManager extends ChangeNotifier {
 
   void retry(TransferTask task) => resume(task);
 
-  /// 取消：中止并移出列表。
+  /// 取消：中止并移出列表。半截下载文件一并清掉（用户明确放弃）。
   void cancel(TransferTask task) {
     task.abort = true;
+    if (task.dir == TransferDir.download) _discardPartial(task.localPath);
+    task.resumeOffset = 0;
     if (task.status == TransferStatus.running) {
       // 驱动退出前先从列表移除，_run 里的 contains 判断会跳过状态回写
       tasks.remove(task);
@@ -217,12 +218,19 @@ class TransferManager extends ChangeNotifier {
       if (mount == null) throw DriverException('挂载已不存在，请重新添加后再试');
       driver = await createDriver(mount);
       await driver.connect();
+      task.resumable = task.dir == TransferDir.download
+          ? driver.resume.canDownload
+          : driver.resume.canUpload;
       if (task.abort) throw const TransferAborted();
 
       if (task.dir == TransferDir.download) {
+        final start = await _downloadStart(task, driver);
+        if (start == 0) _discardPartial(task.localPath);
+        task.transferred = start;
         await driver.downloadTo(
           task.remotePath,
           task.localPath,
+          resumeFrom: start,
           onProgress: (done, total) => _onProgress(task, done, total),
         );
       } else {
@@ -234,29 +242,33 @@ class TransferManager extends ChangeNotifier {
             // 目录已存在或无权限：让真正的写入去报错，避免掩盖真实原因
           }
         }
+        final start = await _uploadStart(task, driver);
+        task.transferred = start;
         await driver.uploadFile(
           task.localPath,
           task.remotePath,
+          resumeFrom: start,
           onProgress: (done, total) => _onProgress(task, done, total),
         );
       }
       if (task.abort) throw const TransferAborted();
       task.status = TransferStatus.done;
       task.transferred = task.total > 0 ? task.total : task.transferred;
+      task.resumeOffset = 0;
       task.speed = 0;
       task.finishedAt = DateTime.now();
     } on TransferAborted {
       if (tasks.contains(task)) {
         task.status = TransferStatus.paused;
         task.speed = 0;
-        if (task.dir == TransferDir.download) _discardPartial(task.localPath);
+        _markResumePoint(task);
       }
     } catch (e) {
       if (tasks.contains(task)) {
         task.status = TransferStatus.failed;
         task.speed = 0;
         task.error = e is DriverException ? e.message : _short(e);
-        if (task.dir == TransferDir.download) _discardPartial(task.localPath);
+        _markResumePoint(task);
       }
     } finally {
       task.abort = false;
@@ -264,6 +276,44 @@ class TransferManager extends ChangeNotifier {
         await driver?.close();
       } catch (_) {}
       _pump();
+    }
+  }
+
+  /// 记下可续传的进度；不支持续传的下载直接删掉半截文件，避免占位误导。
+  void _markResumePoint(TransferTask task) {
+    task.resumeOffset = task.transferred;
+    if (task.dir == TransferDir.download && !task.resumable) {
+      _discardPartial(task.localPath);
+      task.resumeOffset = 0;
+      task.transferred = 0;
+    }
+  }
+
+  /// 下载续传起点以本地文件真实长度为准（内存里的计数可能比落盘多）。
+  Future<int> _downloadStart(TransferTask task, StorageDriver driver) async {
+    if (task.resumeOffset <= 0 || !driver.resume.canDownload) return 0;
+    try {
+      final f = File(task.localPath);
+      if (!f.existsSync()) return 0;
+      final len = await f.length();
+      if (len <= 0) return 0;
+      if (task.total > 0 && len >= task.total) return 0;
+      return len;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// 上传续传起点取远端实际大小：只有远端确实写了这么多字节才能接着传。
+  Future<int> _uploadStart(TransferTask task, StorageDriver driver) async {
+    if (task.resumeOffset <= 0 || !driver.resume.canUpload) return 0;
+    try {
+      final local = await File(task.localPath).length();
+      final remote = await driver.sizeOf(task.remotePath);
+      if (remote <= 0 || remote >= local) return 0;
+      return remote;
+    } catch (_) {
+      return 0;
     }
   }
 

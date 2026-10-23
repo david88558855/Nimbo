@@ -103,11 +103,13 @@ class _TaskCard extends StatelessWidget {
                 : NimboColors.sky600;
 
     final remain = task.remaining;
+    final canResume = (paused || failed) && task.resumable && task.resumeOffset > 0;
     final sub = failed
         ? (task.error ?? '失败')
         : '${humanBytes(task.transferred)} / ${task.total > 0 ? humanBytes(task.total) : '未知大小'}'
             '${task.speed > 0 ? ' · ${humanSpeed(task.speed)}' : ''}'
-            '${remain != null ? ' · 剩余 ${_fmtRemain(remain)}' : ''}';
+            '${remain != null ? ' · 剩余 ${_fmtRemain(remain)}' : ''}'
+            '${canResume ? ' · 可从 ${humanBytes(task.resumeOffset)} 续传' : ''}';
 
     return Container(
       padding: const EdgeInsets.all(12),

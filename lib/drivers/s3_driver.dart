@@ -34,6 +34,19 @@ class S3Driver extends StorageDriver {
   @override
   Capability get caps => const Capability(space: false, checksum: true);
 
+  @override
+  ResumeSupport get resume => ResumeSupport.download;
+
+  @override
+  Future<int> sizeOf(String path) async {
+    try {
+      final res = await _send<dynamic>('HEAD', _requestPath(_key(path)));
+      return int.tryParse(res.headers.value('content-length') ?? '') ?? -1;
+    } catch (_) {
+      return -1;
+    }
+  }
+
   String get _region => mount.region.trim().isEmpty ? 'us-east-1' : mount.region.trim();
 
   bool get _isIpHost => InternetAddress.tryParse(_host) != null;
@@ -302,17 +315,23 @@ class S3Driver extends StorageDriver {
   }
 
   @override
-  Future<void> downloadTo(String remotePath, String localFile, {ProgressFn? onProgress}) async {
+  Future<void> downloadTo(String remotePath, String localFile,
+      {ProgressFn? onProgress, int resumeFrom = 0}) async {
     final res = await _send<ResponseBody>(
       'GET',
       _requestPath(_key(remotePath)),
       responseType: ResponseType.stream,
+      // Range 参与 SigV4 签名，必须走 signed headers。
+      signHeaders: resumeFrom > 0 ? {'range': 'bytes=$resumeFrom-'} : null,
     );
     final body = res.data;
     if (body == null) throw DriverException('响应为空', kind: DriverErrorKind.network);
-    final total = int.tryParse(res.headers.value('content-length') ?? '') ?? 0;
-    final sink = File(localFile).openWrite();
-    var done = 0;
+    final partial = resumeFrom > 0 && res.statusCode == 206;
+    final remain = int.tryParse(res.headers.value('content-length') ?? '') ?? 0;
+    final total = partial ? resumeFrom + remain : remain;
+    final sink =
+        File(localFile).openWrite(mode: partial ? FileMode.append : FileMode.write);
+    var done = partial ? resumeFrom : 0;
     try {
       await for (final chunk in body.stream) {
         sink.add(chunk);
@@ -328,7 +347,9 @@ class S3Driver extends StorageDriver {
   static const _defaultPart = 8 * 1024 * 1024;
 
   @override
-  Future<void> uploadFile(String localFile, String remotePath, {ProgressFn? onProgress}) async {
+  Future<void> uploadFile(String localFile, String remotePath,
+      {ProgressFn? onProgress, int resumeFrom = 0}) async {
+    // 分片上传的续传需要持久化 uploadId 与已传分片，本版不做：一律整份重传。
     final file = File(localFile);
     final length = await file.length();
     final key = _key(remotePath);

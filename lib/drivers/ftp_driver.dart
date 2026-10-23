@@ -26,6 +26,9 @@ class FtpDriver extends StorageDriver {
   Capability get caps => const Capability(space: false, move: true);
 
   @override
+  ResumeSupport get resume => ResumeSupport.both;
+
+  @override
   Future<void> connect() async {
     final host = mount.host.trim();
     if (host.isEmpty) throw DriverException('请填写主机地址');
@@ -189,45 +192,88 @@ class FtpDriver extends StorageDriver {
   }
 
   @override
-  Future<void> downloadTo(String remotePath, String localFile, {ProgressFn? onProgress}) async {
+  Future<void> downloadTo(String remotePath, String localFile,
+      {ProgressFn? onProgress, int resumeFrom = 0}) async {
     int total = 0;
     try {
       final reply = await _s.command('SIZE ${normalizePath(remotePath)}', 213);
       total = int.tryParse(reply.text.trim()) ?? 0;
     } catch (_) {}
 
-    final data = await _dataSocket();
-    await _s.command('RETR ${normalizePath(remotePath)}', 150);
-    final sink = File(localFile).openWrite();
-    var done = 0;
+    final raf = await File(localFile).open(mode: FileMode.append);
     try {
-      await for (final chunk in data) {
-        sink.add(chunk);
+      var start = resumeFrom;
+      final existing = await raf.length();
+      if (existing != start) start = existing;
+      if (total > 0 && start >= total) start = 0;
+      if (start > 0) {
+        try {
+          // REST 让后续 RETR 从指定偏移开始；服务器不支持时退回完整下载。
+          await _s.command('REST $start', 350);
+        } catch (_) {
+          start = 0;
+        }
+      }
+      await raf.truncate(start);
+      await raf.setPosition(start);
+
+      final data = await _dataSocket();
+      await _s.command('RETR ${normalizePath(remotePath)}', 150);
+      var done = start;
+      try {
+        await for (final chunk in data) {
+          await raf.writeFrom(chunk);
+          done += chunk.length;
+          onProgress?.call(done, total);
+        }
+      } finally {
+        await data.close();
+      }
+      await _s.expect(226);
+    } finally {
+      await raf.close();
+    }
+  }
+
+  @override
+  Future<void> uploadFile(String localFile, String remotePath,
+      {ProgressFn? onProgress, int resumeFrom = 0}) async {
+    final file = File(localFile);
+    final total = await file.length();
+    var start = resumeFrom > total ? 0 : resumeFrom;
+    final data = await _dataSocket();
+    // APPE 从远端末尾追加；STOR 覆盖写。
+    await _s.command(
+      '${start > 0 ? 'APPE' : 'STOR'} ${normalizePath(remotePath)}',
+      150,
+    );
+    var done = start;
+    final raf = await file.open();
+    try {
+      if (start > 0) await raf.setPosition(start);
+      while (done < total) {
+        final chunk = await raf.read(1 << 20);
+        if (chunk.isEmpty) break;
+        data.add(chunk);
         done += chunk.length;
         onProgress?.call(done, total);
       }
     } finally {
-      await sink.close();
-      await data.close();
-    }
-    await _s.expect(226);
-  }
-
-  @override
-  Future<void> uploadFile(String localFile, String remotePath, {ProgressFn? onProgress}) async {
-    final file = File(localFile);
-    final total = await file.length();
-    final data = await _dataSocket();
-    await _s.command('STOR ${normalizePath(remotePath)}', 150);
-    var done = 0;
-    await for (final chunk in file.openRead()) {
-      data.add(chunk);
-      done += chunk.length;
-      onProgress?.call(done, total);
+      await raf.close();
     }
     await data.flush();
     await data.close();
     await _s.expect(226);
+  }
+
+  @override
+  Future<int> sizeOf(String path) async {
+    try {
+      final reply = await _s.command('SIZE ${normalizePath(path)}', 213);
+      return int.tryParse(reply.text.trim()) ?? -1;
+    } catch (_) {
+      return -1;
+    }
   }
 
   @override

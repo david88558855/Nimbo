@@ -285,6 +285,12 @@ class TransferTask {
   /// 用户请求中止（暂停 / 取消）：进度回调会抛出，从而中断驱动内部的循环。
   bool abort = false;
 
+  /// 上次中断时的字节数，> 0 表示下次启动尝试续传（实际起点由驱动侧复核）。
+  int resumeOffset = 0;
+
+  /// 当前挂载是否支持续传，连接建立后由驱动能力回填，仅用于界面提示。
+  bool resumable = false;
+
   // 速度采样，仅运行期使用。
   int sampleBytes = 0;
   DateTime? sampleAt;

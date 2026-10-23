@@ -29,6 +29,9 @@ class SftpDriver extends StorageDriver {
   Capability get caps => const Capability(space: false, move: true);
 
   @override
+  ResumeSupport get resume => ResumeSupport.both;
+
+  @override
   Future<void> connect() async {
     final host = mount.host.trim();
     if (host.isEmpty) throw DriverException('请填写主机地址');
@@ -127,7 +130,8 @@ class SftpDriver extends StorageDriver {
   }
 
   @override
-  Future<void> downloadTo(String remotePath, String localFile, {ProgressFn? onProgress}) async {
+  Future<void> downloadTo(String remotePath, String localFile,
+      {ProgressFn? onProgress, int resumeFrom = 0}) async {
     final target = normalizePath(remotePath);
     var total = 0;
     try {
@@ -135,32 +139,40 @@ class SftpDriver extends StorageDriver {
       total = stat.size ?? 0;
     } catch (_) {}
     final handle = await _s.open(target);
-    final sink = File(localFile).openWrite();
-    var done = 0;
+    final raf = await File(localFile).open(mode: FileMode.append);
+    var done = resumeFrom;
     try {
-      await for (final chunk in handle.read()) {
-        sink.add(chunk);
+      final existing = await raf.length();
+      if (existing != done) {
+        done = total > 0 && existing > total ? total : existing;
+        await raf.truncate(done);
+        await raf.setPosition(done);
+      }
+      await for (final chunk in handle.read(offset: done)) {
+        await raf.writeFrom(chunk);
         done += chunk.length;
         onProgress?.call(done, total > 0 ? total : done);
       }
     } finally {
-      await sink.close();
+      await raf.close();
       await handle.close();
     }
   }
 
   @override
-  Future<void> uploadFile(String localFile, String remotePath, {ProgressFn? onProgress}) async {
+  Future<void> uploadFile(String localFile, String remotePath,
+      {ProgressFn? onProgress, int resumeFrom = 0}) async {
     final file = File(localFile);
     final length = await file.length();
     final target = normalizePath(remotePath);
-    final handle = await _s.open(
-      target,
-      mode: SftpFileOpenMode.create | SftpFileOpenMode.write | SftpFileOpenMode.truncate,
-    );
-    var done = 0;
+    var start = resumeFrom > length ? 0 : resumeFrom;
+    var mode = SftpFileOpenMode.create | SftpFileOpenMode.write;
+    if (start == 0) mode = mode | SftpFileOpenMode.truncate;
+    final handle = await _s.open(target, mode: mode);
+    var done = start;
     final raf = await file.open();
     try {
+      if (start > 0) await raf.setPosition(start);
       // 1 MB 为一块：内存占用恒定，且天然可被进度回调中断。
       while (done < length) {
         final chunk = await raf.read(1 << 20);
@@ -172,6 +184,16 @@ class SftpDriver extends StorageDriver {
     } finally {
       await raf.close();
       await handle.close();
+    }
+  }
+
+  @override
+  Future<int> sizeOf(String path) async {
+    try {
+      final stat = await _s.stat(normalizePath(path));
+      return stat.size ?? -1;
+    } catch (_) {
+      return -1;
     }
   }
 

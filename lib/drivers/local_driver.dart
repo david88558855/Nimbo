@@ -15,6 +15,20 @@ class LocalDriver extends StorageDriver {
   @override
   Capability get caps => const Capability(space: true, checksum: false, proxy: false);
 
+  @override
+  ResumeSupport get resume => ResumeSupport.both;
+
+  @override
+  Future<int> sizeOf(String path) async {
+    final f = File(_fs(path));
+    if (!f.existsSync()) return -1;
+    try {
+      return await f.length();
+    } catch (_) {
+      return -1;
+    }
+  }
+
   String get _root => mount.rootPath.isEmpty ? '/' : mount.rootPath;
 
   String _fs(String remotePath) {
@@ -86,39 +100,54 @@ class LocalDriver extends StorageDriver {
   }
 
   @override
-  Future<void> downloadTo(String remotePath, String localFile, {ProgressFn? onProgress}) async {
+  Future<void> downloadTo(String remotePath, String localFile,
+      {ProgressFn? onProgress, int resumeFrom = 0}) async {
     final src = File(_fs(remotePath));
     if (!src.existsSync()) throw DriverException('文件不存在：$remotePath', kind: DriverErrorKind.notFound);
     final total = await src.length();
-    final sink = File(localFile).openWrite();
-    var done = 0;
+    final raf = await File(localFile).open(mode: FileMode.append);
+    var done = resumeFrom;
     try {
-      await for (final chunk in src.openRead()) {
-        sink.add(chunk);
+      final existing = await raf.length();
+      if (existing != done) {
+        // 本地半截文件长度与记录不符：以实际长度为准，超出部分截掉。
+        done = existing > total ? total : existing;
+        await raf.truncate(done);
+        await raf.setPosition(done);
+      }
+      await for (final chunk in src.openRead(done)) {
+        await raf.writeFrom(chunk);
         done += chunk.length;
         onProgress?.call(done, total);
       }
     } finally {
-      await sink.close();
+      await raf.close();
     }
   }
 
   @override
-  Future<void> uploadFile(String localFile, String remotePath, {ProgressFn? onProgress}) async {
+  Future<void> uploadFile(String localFile, String remotePath,
+      {ProgressFn? onProgress, int resumeFrom = 0}) async {
     final src = File(localFile);
     final total = await src.length();
     final dest = File(_fs(remotePath));
     await dest.parent.create(recursive: true);
-    final sink = dest.openWrite();
-    var done = 0;
+    final raf = await dest.open(mode: FileMode.append);
+    var done = resumeFrom;
     try {
-      await for (final chunk in src.openRead()) {
-        sink.add(chunk);
+      final existing = await raf.length();
+      if (existing != done) {
+        done = existing > total ? 0 : existing;
+        await raf.truncate(done);
+        await raf.setPosition(done);
+      }
+      await for (final chunk in src.openRead(done)) {
+        await raf.writeFrom(chunk);
         done += chunk.length;
         onProgress?.call(done, total);
       }
     } finally {
-      await sink.close();
+      await raf.close();
     }
   }
 
