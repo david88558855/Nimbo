@@ -194,16 +194,17 @@ class AppState extends ChangeNotifier {
     return list;
   }
 
-  /// 批量下载：目录会被跳过（目录下载未实现），返回入队数量。
+  /// 批量下载：目录递归展开，返回入队文件数。
   Future<int> downloadPicked() async {
     final mount = activeMount;
     if (mount == null) return 0;
-    final targets = pickedEntries.where((e) => !e.isDir).toList(growable: false);
+    final targets = pickedEntries.toList(growable: false);
+    var n = 0;
     for (final e in targets) {
-      await transfers.enqueueDownload(mount, e);
+      n += await transfers.enqueueDownload(mount, e);
     }
     exitSelection();
-    return targets.length;
+    return n;
   }
 
   /// 批量删除：串行执行，全部尝试一遍后汇总失败项。
@@ -295,11 +296,11 @@ class AppState extends ChangeNotifier {
     await refresh();
   }
 
-  /// 下载到本地下载目录（排队执行，不阻塞当前浏览）。
-  Future<void> download(RemoteEntry entry) async {
+  /// 下载到本地下载目录（排队执行，不阻塞当前浏览）。目录会递归展开。
+  Future<int> download(RemoteEntry entry) async {
     final mount = activeMount;
-    if (mount == null || entry.isDir) return;
-    await transfers.enqueueDownload(mount, entry);
+    if (mount == null) return 0;
+    return transfers.enqueueDownload(mount, entry);
   }
 
   /// 上传本地文件到当前目录。

@@ -292,11 +292,13 @@ class _SelectionBar extends StatelessWidget {
   }
 
   Future<void> _downloadPicked(BuildContext context) async {
-    final skipped = state.pickedEntries.where((e) => e.isDir).length;
+    final dirs = state.pickedEntries.where((e) => e.isDir).length;
     final n = await state.downloadPicked();
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(skipped == 0 ? '已加入下载队列：$n 个文件' : '已加入下载队列：$n 个文件，跳过 $skipped 个文件夹'),
+      content: Text(dirs == 0
+          ? '已加入下载队列：$n 个文件'
+          : '已加入下载队列：$n 个文件（$dirs 个文件夹已递归展开）'),
     ));
   }
 
@@ -631,8 +633,10 @@ class _Row extends StatelessWidget {
                     if (!entry.isDir && canPreviewEntry(entry))
                       const PopupMenuItem(
                           value: 'preview', child: Text('预览', style: TextStyle(fontSize: 12))),
-                    if (!entry.isDir)
-                      const PopupMenuItem(value: 'download', child: Text('下载', style: TextStyle(fontSize: 12))),
+                    PopupMenuItem(
+                        value: 'download',
+                        child: Text(entry.isDir ? '下载文件夹' : '下载',
+                            style: const TextStyle(fontSize: 12))),
                     if (!state.readOnly) ...[
                       const PopupMenuItem(value: 'rename', child: Text('重命名', style: TextStyle(fontSize: 12))),
                       const PopupMenuItem(value: 'delete', child: Text('删除', style: TextStyle(fontSize: 12))),
@@ -784,15 +788,16 @@ void _showActions(BuildContext context, AppState state, RemoteEntry entry) {
                 showPreview(context, state, entry);
               },
             ),
-          if (!entry.isDir)
-            ListTile(
-              leading: const Icon(Icons.download_rounded, size: 20),
-              title: const Text('下载', style: TextStyle(fontSize: 13)),
-              onTap: () {
-                Navigator.pop(ctx);
-                state.download(entry);
-              },
-            ),
+          ListTile(
+            leading: Icon(
+                entry.isDir ? Icons.download_for_offline_outlined : Icons.download_rounded,
+                size: 20),
+            title: Text(entry.isDir ? '下载文件夹' : '下载', style: const TextStyle(fontSize: 13)),
+            onTap: () {
+              Navigator.pop(ctx);
+              state.download(entry);
+            },
+          ),
           if (!state.readOnly)
             ListTile(
               leading: const Icon(Icons.drive_file_rename_outline_rounded, size: 20),
@@ -885,13 +890,24 @@ class _Details extends StatelessWidget {
             if (!entry.isDir)
               SizedBox(
                 width: double.infinity,
-                child: NimboButton('下载到本地',
-                    icon: Icons.download_rounded,
-                    kind: NimboButtonKind.primary,
+                child: NimboButton('预览',
+                    icon: Icons.visibility_outlined,
                     height: 34,
                     expand: true,
-                    onPressed: () => state.download(entry)),
+                    onPressed: canPreviewEntry(entry)
+                        ? () => showPreview(context, state, entry)
+                        : null),
               ),
+            if (!entry.isDir) const SizedBox(height: 6),
+            SizedBox(
+              width: double.infinity,
+              child: NimboButton('下载到本地',
+                  icon: Icons.download_rounded,
+                  kind: NimboButtonKind.primary,
+                  height: 34,
+                  expand: true,
+                  onPressed: () => state.download(entry)),
+            ),
           ],
         ),
       ),

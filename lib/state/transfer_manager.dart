@@ -46,25 +46,88 @@ class TransferManager extends ChangeNotifier {
 
   // ---------- 入队 ----------
 
-  Future<void> enqueueDownload(Mount mount, RemoteEntry entry) async {
-    if (entry.isDir) return;
-    final dir = await downloadDir();
-    final localPath = '${dir.path}${Platform.pathSeparator}${sanitizeName(entry.name)}';
+  /// 下载入口：文件直接入队，目录递归展开。返回入队文件数。
+  Future<int> enqueueDownload(Mount mount, RemoteEntry entry) async {
+    if (!entry.isDir) {
+      final dir = await downloadDir();
+      final localPath = '${dir.path}${Platform.pathSeparator}${sanitizeName(entry.name)}';
+      _mounts[mount.id] = mount;
+      tasks.insert(
+        0,
+        TransferTask(
+          id: _newId(),
+          mountId: mount.id,
+          mountName: mount.name,
+          name: entry.name,
+          remotePath: entry.path,
+          localPath: localPath,
+          dir: TransferDir.download,
+          total: entry.size,
+        ),
+      );
+      _pump();
+      return 1;
+    }
+    return _enqueueDirectory(mount, entry);
+  }
+
+  /// 目录下载：广度遍历远端目录，本地按同名层级建目录，逐个文件入队。
+  ///
+  /// 单独开一条连接做列举（与传输任务互不影响），列完即关。
+  Future<int> _enqueueDirectory(Mount mount, RemoteEntry root) async {
+    final base = await downloadDir();
+    final rootLocal = Directory(
+        '${base.path}${Platform.pathSeparator}${sanitizeName(root.name)}');
+    if (!rootLocal.existsSync()) await rootLocal.create(recursive: true);
+
+    final driver = await createDriver(mount);
     _mounts[mount.id] = mount;
-    tasks.insert(
-      0,
-      TransferTask(
-        id: _newId(),
-        mountId: mount.id,
-        mountName: mount.name,
-        name: entry.name,
-        remotePath: entry.path,
-        localPath: localPath,
-        dir: TransferDir.download,
-        total: entry.size,
-      ),
-    );
+    var count = 0;
+    try {
+      await driver.connect();
+      final stack = <List<String>>[
+        [root.path, rootLocal.path],
+      ];
+      while (stack.isNotEmpty) {
+        final cur = stack.removeLast();
+        final List<RemoteEntry> items;
+        try {
+          items = await driver.list(cur[0]);
+        } catch (_) {
+          continue; // 子目录不可读时跳过，不阻断其余文件
+        }
+        for (final e in items) {
+          final local = '${cur[1]}${Platform.pathSeparator}${sanitizeName(e.name)}';
+          if (e.isDir) {
+            try {
+              await Directory(local).create(recursive: true);
+            } catch (_) {}
+            stack.add([e.path, local]);
+          } else {
+            tasks.insert(
+              0,
+              TransferTask(
+                id: _newId(),
+                mountId: mount.id,
+                mountName: mount.name,
+                name: e.name,
+                remotePath: e.path,
+                localPath: local,
+                dir: TransferDir.download,
+                total: e.size,
+              ),
+            );
+            count++;
+          }
+        }
+      }
+    } finally {
+      try {
+        await driver.close();
+      } catch (_) {}
+    }
     _pump();
+    return count;
   }
 
   Future<void> enqueueUpload(
