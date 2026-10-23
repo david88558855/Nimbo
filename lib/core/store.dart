@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -158,7 +160,20 @@ class SecureStore {
   /// 区分「没有存过」（ok=true, value 空）与「安全存储不可用」（ok=false）。
   /// 后者在 Android 上通常是 minSdk < 23 或设备 keystore 异常，必须先提示用户，
   /// 否则会被当成空密码，所有网络协议都表现成「认证失败」。
+  ///
+  /// Windows 便携版额外读一份 `userdata/credentials.dat`：整目录拷到另一台机器
+  /// 时系统凭据库是空的，用它兜底（见 [write]）。
   static Future<StoredSecret> readSafe(String mountId, {String field = 'password'}) async {
+    final secure = await _secureRead(mountId, field);
+    if (secure.value.isNotEmpty) return secure;
+    final portable = await _portableGet(_key(mountId, field));
+    if (portable != null && portable.isNotEmpty) {
+      return StoredSecret(portable, ok: true);
+    }
+    return secure;
+  }
+
+  static Future<StoredSecret> _secureRead(String mountId, String field) async {
     try {
       final v = await _storage.read(key: _key(mountId, field));
       return StoredSecret(v ?? '', ok: true);
@@ -169,22 +184,102 @@ class SecureStore {
 
   /// 写入凭据；返回 false 表示安全存储不可用（调用方应提示用户，否则会静默丢密码）。
   static Future<bool> write(String mountId, String value, {String field = 'password'}) async {
+    var secureOk = false;
     try {
       if (value.isEmpty) {
         await _storage.delete(key: _key(mountId, field));
       } else {
         await _storage.write(key: _key(mountId, field), value: value);
       }
-      return true;
+      secureOk = true;
     } catch (_) {
-      return false;
+      secureOk = false;
     }
+    await _portablePut(_key(mountId, field), value);
+    // Windows 上便携文件写成功也算成功（系统凭据库不可用时仍可工作）
+    return secureOk || Platform.isWindows;
   }
 
   static Future<void> delete(String mountId) async {
     try {
       await _storage.delete(key: _key(mountId, 'password'));
       await _storage.delete(key: _key(mountId, 'proxyPassword'));
+    } catch (_) {}
+    await _portablePut(_key(mountId, 'password'), '');
+    await _portablePut(_key(mountId, 'proxyPassword'), '');
+  }
+
+  // ---------- Windows 便携凭据（随 userdata 目录走）----------
+
+  static File? _portableFileCache;
+
+  static Future<File> _portableFile() async {
+    final cached = _portableFileCache;
+    if (cached != null) return cached;
+    final dir = await AppPaths.dataDir();
+    final f = File('${dir.path}${Platform.pathSeparator}credentials.dat');
+    _portableFileCache = f;
+    return f;
+  }
+
+  /// 固定派生密钥：换机器/换目录仍可解，纯混淆，仅防肉眼直读，
+  /// **不等同于系统凭据库强度**。同机上仍以 DPAPI 存储为准。
+  static final List<int> _portableKey =
+      sha256.convert(utf8.encode('nimbo.portable.credential.v1')).bytes;
+
+  static String _mask(String plain) {
+    final key = _portableKey;
+    final bytes = Uint8List.fromList(utf8.encode(plain));
+    for (var i = 0; i < bytes.length; i++) {
+      bytes[i] ^= key[i % key.length];
+    }
+    return base64.encode(bytes);
+  }
+
+  static String _unmask(String stored) {
+    final key = _portableKey;
+    final bytes = base64.decode(stored);
+    for (var i = 0; i < bytes.length; i++) {
+      bytes[i] ^= key[i % key.length];
+    }
+    return utf8.decode(bytes, allowMalformed: true);
+  }
+
+  static Future<Map<String, dynamic>> _portableAll() async {
+    try {
+      final f = await _portableFile();
+      if (!f.existsSync()) return <String, dynamic>{};
+      final raw = jsonDecode(await f.readAsString());
+      if (raw is Map) return raw.cast<String, dynamic>();
+      return <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
+  static Future<String?> _portableGet(String key) async {
+    if (!Platform.isWindows) return null;
+    final all = await _portableAll();
+    final v = all[key];
+    if (v is! String || v.isEmpty) return null;
+    try {
+      return _unmask(v);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> _portablePut(String key, String value) async {
+    if (!Platform.isWindows) return;
+    try {
+      final all = await _portableAll();
+      if (value.isEmpty) {
+        all.remove(key);
+      } else {
+        all[key] = _mask(value);
+      }
+      final f = await _portableFile();
+      await f.writeAsString(jsonEncode(all));
     } catch (_) {}
   }
 }

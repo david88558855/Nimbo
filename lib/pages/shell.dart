@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app/theme.dart';
 import '../core/models.dart';
@@ -34,8 +35,10 @@ class _NimboShellState extends State<NimboShell> {
 
   void _go(int index) => setState(() => _index = index);
 
-  /// 系统返回键：逐级回退，只有在「全部挂载」根才允许退出应用。
-  bool get _canPop => _index == 0 && state.browseAll && !state.selectionMode;
+  /// 系统返回键：逐级回退；到「全部挂载」根后必须连按两次才退出应用。
+  bool get _canPop => false;
+
+  DateTime? _lastBackAt;
 
   void _onPop(bool didPop, Object? result) {
     if (didPop) return;
@@ -47,9 +50,23 @@ class _NimboShellState extends State<NimboShell> {
       state.exitSelection();
       return;
     }
-    if (state.browseAll) return;
-    // 目录 → 上级目录；挂载根 → 全部挂载（AppState.up 内部处理）
-    state.up();
+    if (!state.browseAll) {
+      // 目录 → 上级目录；挂载根 → 全部挂载（AppState.up 内部处理）
+      state.up();
+      return;
+    }
+    // 已在「全部挂载」根：第一次只提示，2 秒内再按一次才真正退出
+    final now = DateTime.now();
+    final last = _lastBackAt;
+    _lastBackAt = now;
+    if (last != null && now.difference(last) < const Duration(seconds: 2)) {
+      SystemNavigator.pop();
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('再按一次返回键退出 Nimbo'),
+      duration: Duration(seconds: 2),
+    ));
   }
 
   @override
