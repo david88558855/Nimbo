@@ -315,6 +315,11 @@ HTTP 类只接受 `206 Partial Content`：服务器返回 200 说明忽略了 Ra
     步骤负责注入 `INTERNET` / `ACCESS_NETWORK_STATE` 与 `usesCleartextTraffic="true"`
     （Android 9+ 默认禁明文 HTTP，WebDAV `http://` 会被拦）。**这三项不要从 workflow 里删**，
     删了就会重现「四个协议都登不上」。校验方式：解包 APK 读 `AndroidManifest.xml` 的字符串池。
+19. **dio 的 `fetch(RequestOptions)` 不会合并 `BaseOptions.headers`。**
+    WebDAV 的 `Authorization` 是在 `BaseOptions.headers` 里统一设置的，用 `_dio.fetch`
+    发 PROPFIND 时认证头会丢，服务器一律回 401 —— 表现为「别的客户端能登，本应用登不上」。
+    所有自定义方法（PROPFIND / MKCOL / MOVE / HEAD）必须走 `_dio.request(url, options: Options(method: ...))`。
+    **新增 WebDAV 方法时不要再用 `fetch(RequestOptions)`。**
 
 ---
 
@@ -400,6 +405,7 @@ HTTP 类只接受 `206 Partial Content`：服务器返回 200 说明忽略了 Ra
 | 2026-10-23 22:35 | `0237274` | ✅ | ✅ | ✅ | **P2 完成**：目录下载 + 版本 `0.3.0+3` |
 | 2026-10-23 23:20 | `8e7203e` | ✅ | ✅ | ❌ | 补 Android 网络权限；android 失败于 runner 下载 NDK 损坏（`Error on ZipFile unknown archive`），非代码问题 |
 | 2026-10-23 23:25 | `a2270c1` | ✅ | ✅ | ✅ | 同上，重跑后三绿：release APK 已含 `INTERNET` + `usesCleartextTraffic` |
+| 2026-10-24 05:45 | `8e09e26` | ✅ | ✅ | ✅ | **WebDAV 401 修复**：PROPFIND/MKCOL/MOVE 改用 `_dio.request`，恢复 Authorization 头 |
 
 - 最近一次成功：run `39970353975`（commit `0237274`），`analyze` 输出 `No issues found!`
 - 产物：`windows-x64-portable.zip` 12.53 MB（内含 `Nimbo.exe`）、`app-release.apk` 20.5 MB（arm64 release）
