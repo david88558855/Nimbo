@@ -859,9 +859,14 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
 | 2026-10-24 09:14 | `f0fd062` | ✅（含单测） | ✅ | ✅ | **当前最终状态**：S3/WebDAV 端口归入地址、去掉独立端口框 |
 | 2026-10-24 09:31 | `957958a` | ✅（含单测） | ✅ | ✅ | S3 Endpoint 子路径修复（网关型 `/s3` 404） |
 | 2026-10-24 09:45 | `845181c` | — | — | — | 文档：技术栈审查报告（docs-only，不触发构建） |
-| 2026-10-24 10:03 | `75d5370` | ✅（含单测） | ✅ | ✅ | **当前最终状态**：Windows 托盘/单实例/退出路径加固 |
+| 2026-10-24 10:03 | `75d5370` | ✅（含单测） | ✅ | ✅ | Windows 托盘/单实例/退出路径加固 |
+| 2026-10-24 11:05 | `4b4a790` | — | — | — | 文档：构建记录补到 75d5370 |
+| 2026-10-24 11:07 | `85720dc` | ✅（含单测） | ✅ | ✅ | 托盘右键不弹菜单修复（`setContextMenuTrigger(rightClicked)` + 手动兜底） |
+| 2026-10-24 11:20 | `165f7f3` | — | — | — | 移除只读挂载/底部提示、下载目录、并发默认 3（被字体提交取代，构建取消） |
+| 2026-10-24 11:29 | `2217d69` | ✅（含单测 40 项） | ✅ | ✅ | **当前最终状态**：Windows 界面字体换思源黑体（内置 400/500/700）+ 上一条全部内容 |
 
-- 最近一次成功：commit `75d5370`（analyze + flutter test + android-arm64 + windows-x64 全绿）
+- 最近一次成功：commit `2217d69`（analyze + flutter test 40 项 + android-arm64 + windows-x64 全绿）
+- `flutter analyze` 现有 17 条 info（tray_manager legacy API 的 deprecated 提示为主），无 warning/error
 - 门禁现在是两条：`flutter analyze`（约 1.5 min）与 `flutter test`（纯逻辑单测，约 1 min）
 - 产物：`windows-x64-portable.zip` 12.53 MB（内含 `Nimbo.exe`）、`app-release.apk` 20.5 MB（arm64 release）
 - 耗时参考：analyze ≈ 1.5 min，windows ≈ 5 min，android ≈ 6 min
