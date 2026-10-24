@@ -1,9 +1,11 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
 import '../core/version.dart';
+import '../drivers/errors.dart';
 import '../state/app_state.dart';
 import '../ui/kit.dart';
 
@@ -37,6 +39,25 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   static String _kbpsText(int v) => v <= 0 ? '' : '$v';
+
+  /// 默认下载目录的**描述**（真实路径由传输层算，且不可用时会自动回落）。
+  String get _defaultDownloadHint => Platform.isWindows ? '下载/Nimbo' : '应用文档目录/Nimbo';
+
+  /// 选下载目录：只存路径，真正建目录/校验可写在传输层做
+  /// （换机器、删目录、目录变文件都能自动回落到默认位置）。
+  Future<void> _pickDownloadDir() async {
+    try {
+      final picked = await FilePicker.platform.getDirectoryPath(dialogTitle: '选择下载目录');
+      if (picked == null || picked.trim().isEmpty) return;
+      if (!mounted) return;
+      await state.updateSettings((s) => s.downloadDir = picked.trim());
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(describeError(e))),
+      );
+    }
+  }
 
   /// 输入框留空或填 0 都表示「不限」。
   void _applyLimit({required bool upload}) {
@@ -85,8 +106,7 @@ class _SettingsPageState extends State<SettingsPage> {
             children: [
               const _Label('传输'),
               const SizedBox(height: 10),
-              _row('下载目录', 'Windows：用户下载目录下的 Nimbo；Android：应用文档目录'),
-              const SizedBox(height: 6),
+              // 下载目录现在是可配置项，具体行在下方（这里不再放只读说明）。
               Row(
                 children: [
                   const SizedBox(
@@ -108,7 +128,12 @@ class _SettingsPageState extends State<SettingsPage> {
                       children: [
                         for (final n in [1, 2, 3, 4])
                           InkWell(
-                            onTap: () => state.updateSettings((s) => s.maxConcurrent = n),
+                            // 标记「用户自己选过」：老配置里那个 2 是旧默认值写进去的，
+                            // 不标记的话改默认值对老用户永远不生效（见 AppSettings 注释）。
+                            onTap: () => state.updateSettings((s) {
+                              s.maxConcurrent = n;
+                              s.maxConcurrentPinned = true;
+                            }),
                             borderRadius: BorderRadius.circular(6),
                             child: Container(
                               width: uiSize(30),
@@ -148,6 +173,59 @@ class _SettingsPageState extends State<SettingsPage> {
                             fontSize: 9.5,
                             fontWeight: FontWeight.w600,
                             color: NimboColors.ink4)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(
+                    width: 92,
+                    child: Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: Text('下载目录',
+                          style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                              color: NimboColors.ink3)),
+                    ),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          s.downloadDir.isEmpty
+                              ? '默认：$_defaultDownloadHint'
+                              : s.downloadDir,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                              color: NimboColors.ink2),
+                        ),
+                        const SizedBox(height: 6),
+                        // Wrap：窄屏 + 放大字号时按钮自动折行，不会溢出。
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            NimboButton('选择目录…',
+                                icon: Icons.folder_open_rounded,
+                                height: 26,
+                                onPressed: _pickDownloadDir),
+                            if (s.downloadDir.isNotEmpty)
+                              NimboButton('恢复默认',
+                                  kind: NimboButtonKind.ghost,
+                                  height: 26,
+                                  onPressed: () =>
+                                      state.updateSettings((x) => x.downloadDir = '')),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -231,7 +309,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 const Divider(height: 18, color: Color(0xFFF0F4F9)),
                 _row('单实例', '重复启动只唤起已有窗口，不会出现第二个进程'),
-                _row('托盘', '左键单击无反应，双击显示并聚焦；右键可退出'),
+                _row('托盘', '左键单击/双击都显示并聚焦；右键菜单可显示或退出'),
               ],
             ),
           ),

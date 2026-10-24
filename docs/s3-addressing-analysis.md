@@ -215,12 +215,13 @@ auto:
 
 | 场景 | 需要的动作 |
 |---|---|
-| 只读挂载 | `s3:ListBucket` + `s3:GetObject` |
+| 只给 List+Get 的账号（客户端已无「只读挂载」开关，靠服务端权限） | `s3:ListBucket` + `s3:GetObject` |
 | 可写挂载 | 追加 `s3:PutObject` / `s3:DeleteObject` |
 | 移动/重命名 | 追加 `s3:GetObject`（copy 源）+ `s3:PutObject`（目标）+ `s3:DeleteObject`（源） |
 | 分片 | 追加 `s3:AbortMultipartUpload` / `s3:ListMultipartUploadParts` |
 
-→ 客户端**不应要求 admin / 建桶权限**；只读挂载在 UI 上直接标「只读」，删除按钮置灰。
+→ 客户端**不应要求 admin / 建桶权限**。注意：「只读挂载」开关已从客户端移除，
+   权限完全由服务端 IAM 决定，写操作失败会走 403 的错误文案。
 
 ---
 

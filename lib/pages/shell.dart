@@ -262,9 +262,9 @@ class _Rail extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.shield_outlined, size: 12, color: NimboColors.ink3),
+                        const Icon(Icons.lan_outlined, size: 12, color: NimboColors.ink3),
                         const SizedBox(width: 5),
-                        Text(active.readOnly ? '只读挂载' : '可读写',
+                        Text('${active.protocol.label} 挂载',
                             style: const TextStyle(
                                 fontSize: 9.5, fontWeight: FontWeight.w800, color: NimboColors.ink3)),
                       ],

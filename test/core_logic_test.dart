@@ -4,6 +4,7 @@ import 'package:nimbo/core/format.dart';
 import 'package:nimbo/core/limiter.dart';
 import 'package:nimbo/core/multipart_store.dart';
 import 'package:nimbo/core/models.dart';
+import 'package:nimbo/core/store.dart';
 import 'package:nimbo/core/upload_checkpoint.dart';
 import 'package:nimbo/drivers/errors.dart';
 import 'package:nimbo/drivers/s3_path.dart';
@@ -237,6 +238,58 @@ void main() {
       expect(uriEncodeS3('aZ0-._~'), 'aZ0-._~');
       expect(uriEncodeS3('a/b'), 'a%2Fb');
       expect(uriEncodeS3('a+b'), 'a%2Bb');
+    });
+  });
+
+  group('挂载配置', () {
+    test('只读字段已移除：老配置里的 readOnly 被忽略，也不再写回', () {
+      final m = Mount.fromJson({
+        'id': 'm1',
+        'name': 'demo',
+        'protocol': 'webdav',
+        'host': 'https://dav.example.com',
+        'port': 0,
+        'readOnly': true, // 老配置遗留，读的时候直接丢掉
+      });
+      expect(m.host, 'https://dav.example.com');
+      expect(m.toJson().containsKey('readOnly'), isFalse);
+    });
+  });
+
+  group('设置默认值', () {
+    test('并发任务默认 3', () {
+      expect(AppSettings().maxConcurrent, 3);
+      final s = AppSettings()..load(null);
+      expect(s.maxConcurrent, 3);
+    });
+
+    test('老配置里那个 2 是旧默认值，改成 3 后不再粘住用户', () {
+      final s = AppSettings()..load({'maxConcurrent': 2});
+      expect(s.maxConcurrent, 3);
+      expect(s.maxConcurrentPinned, isFalse);
+    });
+
+    test('用户显式选过的并发数要保留', () {
+      final s = AppSettings()
+        ..load({'maxConcurrent': 2, 'maxConcurrentPinned': true});
+      expect(s.maxConcurrent, 2);
+      expect(s.maxConcurrentPinned, isTrue);
+    });
+
+    test('并发数越界收进 1–4', () {
+      expect((AppSettings()..load({'maxConcurrent': 9, 'maxConcurrentPinned': true})).maxConcurrent, 4);
+      expect((AppSettings()..load({'maxConcurrent': 0, 'maxConcurrentPinned': true})).maxConcurrent, 1);
+    });
+
+    test('下载目录可往返', () {
+      final s = AppSettings()..load({'downloadDir': r'D://Media'});
+      expect(s.downloadDir, r'D://Media');
+      final again = AppSettings()..load(s.toJson());
+      expect(again.downloadDir, r'D://Media');
+    });
+
+    test('没配下载目录时为空（走默认目录）', () {
+      expect((AppSettings()..load(const {})).downloadDir, '');
     });
   });
 

@@ -203,10 +203,6 @@ class _MountCardState extends State<_MountCard> {
                 ),
               ],
               const Spacer(),
-              if (mount.readOnly)
-                const Text('只读',
-                    style: TextStyle(
-                        fontSize: 9.5, fontWeight: FontWeight.w700, color: NimboColors.warnInk)),
               const SizedBox(width: 10),
               InkWell(
                 onTap: widget.onDelete,

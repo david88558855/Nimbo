@@ -56,6 +56,11 @@ gh run view --job $JOB --log-failed | sed -e 's/\x1b\[[0-9;]*m//g' | grep -E "er
 - **WebDAV 自定义方法必须用 `_dio.request(url, options: Options(method: ...))`**，
   不要用 `_dio.fetch(RequestOptions(...))`——后者不合并 `BaseOptions.headers`，
   `Authorization` 会丢，表现为全站 401。
+- **没有「只读挂载」开关了**：`Mount.readOnly` 已删，写操作门禁只看 `activeMount` 是否存在。
+  老配置里的 `readOnly` 键会被忽略；不要重新引入这个字段（权限问题应交给服务端 403）。
+- **下载目录**：`AppSettings.downloadDir`（空 = 默认）→ `TransferManager.downloadRoot` →
+  `downloadDir(root:)`。该函数会建目录 + 写探针，失败静默回落默认目录；
+  `localPath` 在入队时算好，改设置只影响新任务。
 - 文件页有两种态：`AppState.browseAll`（全部挂载聚合根）与挂载内目录树。
   新增页面级交互时先想清楚在哪个态生效。
 - **移动端字号**：Android 上 `MaterialApp.builder` 把文本缩放下限抬到 1.2

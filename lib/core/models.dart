@@ -140,7 +140,6 @@ class Mount {
     this.bucket = '',
     this.region = '',
     this.pathStyle = true,
-    this.readOnly = false,
     this.anonymous = false,
     this.proxy = const ProxyConfig(),
     DateTime? createdAt,
@@ -156,7 +155,6 @@ class Mount {
   String bucket;
   String region;
   bool pathStyle;
-  bool readOnly;
 
   /// FTP 匿名登录：不发送真实账号，用 anonymous / anonymous@ 登录。
   bool anonymous;
@@ -192,7 +190,6 @@ class Mount {
         'bucket': bucket,
         'region': region,
         'pathStyle': pathStyle,
-        'readOnly': readOnly,
         'anonymous': anonymous,
         'proxy': proxy.toJson(),
         'createdAt': createdAt.toIso8601String(),
@@ -209,7 +206,6 @@ class Mount {
         bucket: (j['bucket'] as String?) ?? '',
         region: (j['region'] as String?) ?? '',
         pathStyle: j['pathStyle'] != false,
-        readOnly: j['readOnly'] == true,
         anonymous: j['anonymous'] == true,
         proxy: ProxyConfig.fromJson(j['proxy'] as Map<String, dynamic>?),
         createdAt: DateTime.tryParse((j['createdAt'] as String?) ?? ''),

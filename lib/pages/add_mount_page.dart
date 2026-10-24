@@ -31,7 +31,6 @@ class _AddMountDialogState extends State<AddMountDialog> {
   final _bucket = TextEditingController();
   final _region = TextEditingController();
   bool _pathStyle = true;
-  bool _readOnly = false;
   bool _anonymous = false;
 
   bool _proxyEnabled = false;
@@ -66,7 +65,6 @@ class _AddMountDialogState extends State<AddMountDialog> {
     _bucket.text = m.bucket;
     _region.text = m.region;
     _pathStyle = m.pathStyle;
-    _readOnly = m.readOnly;
     _anonymous = m.anonymous;
     _proxyEnabled = m.proxy.enabled;
     _proxyType = m.proxy.type;
@@ -135,7 +133,6 @@ class _AddMountDialogState extends State<AddMountDialog> {
         bucket: _bucket.text.trim(),
         region: _region.text.trim(),
         pathStyle: _pathStyle,
-        readOnly: _readOnly,
         anonymous: _protocol == MountProtocol.ftp && _anonymous,
         proxy: ProxyConfig(
           enabled: _proxyEnabled,
@@ -338,12 +335,8 @@ class _AddMountDialogState extends State<AddMountDialog> {
               padding: const EdgeInsets.fromLTRB(20, 10, 16, 12),
               child: Row(
                 children: [
-                  const Icon(Icons.shield_outlined, size: 13, color: NimboColors.ink4),
-                  const SizedBox(width: 5),
-                  const Expanded(
-                    child: Text('凭据只写入系统安全存储，不落配置文件',
-                        style: TextStyle(fontSize: 10, color: NimboColors.ink3)),
-                  ),
+                  // 底部只留操作按钮：原来的「凭据写入系统安全存储」说明已移除。
+                  const Spacer(),
                   NimboButton(_testing ? '测试中…' : '测试连接',
                       kind: NimboButtonKind.secondary,
                       icon: Icons.bolt_rounded,
@@ -484,7 +477,6 @@ class _AddMountDialogState extends State<AddMountDialog> {
         children: [
           _field('显示名称', _name),
           _field('目录路径', _rootPath, hint: 'D:\\Media 或 /storage/emulated/0/Download'),
-          _switchRow('只读挂载', _readOnly, (v) => setState(() => _readOnly = v)),
           const SizedBox(height: 4),
           const Text('提示：Windows 可先把 SMB 共享映射成盘符，再从这里按本地目录接入。',
               style: TextStyle(fontSize: 10.5, height: 1.6, color: NimboColors.ink3)),
@@ -546,7 +538,6 @@ class _AddMountDialogState extends State<AddMountDialog> {
               hint: _isEdit ? '留空表示不修改' : null),
           _field('根路径（可空）', _rootPath, hint: '/'),
         ],
-        _switchRow('只读挂载', _readOnly, (v) => setState(() => _readOnly = v)),
       ],
     );
   }

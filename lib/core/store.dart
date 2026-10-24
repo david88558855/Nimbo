@@ -62,8 +62,20 @@ class AppSettings {
   /// 关窗行为：true = 收进托盘（默认），false = 直接退出。
   bool closeToTray = true;
 
-  /// 并发传输数：每个任务独占一条连接。
-  int maxConcurrent = 2;
+  /// 并发传输数：每个任务独占一条连接。默认 3。
+  int maxConcurrent = 3;
+
+  /// 用户是否**显式**选过并发数。
+  ///
+  /// 老版本每次保存都会把默认值 2 写进 `prefs.json`，所以「字段存在」不能证明
+  /// 用户选过 2。默认值改成 3 之后，只有这个标记为 true 才保留历史值，
+  /// 否则一律按新默认值 3 起（用户不改的话不该被旧默认值粘住）。
+  bool maxConcurrentPinned = false;
+
+  /// 下载目录（留空 = 默认：Windows 是「下载/Nimbo」，其余是应用文档目录/Nimbo）。
+  ///
+  /// 存绝对路径；目录被删或不可写时传输层会回落到默认目录，不会让下载直接失败。
+  String downloadDir = '';
 
   /// 全局限速（KB/s，0 表示不限）。按方向分开配，因为上下行的带宽通常不对称。
   int uploadLimitKbps = 0;
@@ -74,6 +86,8 @@ class AppSettings {
         'confirmDelete': confirmDelete,
         'closeToTray': closeToTray,
         'maxConcurrent': maxConcurrent,
+        'maxConcurrentPinned': maxConcurrentPinned,
+        'downloadDir': downloadDir,
         'uploadLimitKbps': uploadLimitKbps,
         'downloadLimitKbps': downloadLimitKbps,
       };
@@ -83,11 +97,15 @@ class AppSettings {
     hideHiddenFiles = j['hideHiddenFiles'] == true;
     confirmDelete = j['confirmDelete'] != false;
     closeToTray = j['closeToTray'] != false;
-    final c = (j['maxConcurrent'] as num?)?.toInt() ?? 2;
-    maxConcurrent = c < 1 ? 1 : (c > 4 ? 4 : c);
+    final c = (j['maxConcurrent'] as num?)?.toInt();
+    maxConcurrentPinned = j['maxConcurrentPinned'] == true;
+    maxConcurrent = (maxConcurrentPinned && c != null) ? _clampConcurrent(c) : 3;
+    downloadDir = (j['downloadDir'] as String?) ?? '';
     uploadLimitKbps = _clampKbps((j['uploadLimitKbps'] as num?)?.toInt());
     downloadLimitKbps = _clampKbps((j['downloadLimitKbps'] as num?)?.toInt());
   }
+
+  static int _clampConcurrent(int v) => v < 1 ? 1 : (v > 4 ? 4 : v);
 
   /// 上限 1 GB/s：再大没有意义，也避免手输错误把令牌桶计算出天文数字。
   static int _clampKbps(int? v) {

@@ -73,7 +73,6 @@ class AppState extends ChangeNotifier {
   List<TransferTask> get tasks => transfers.tasks;
 
   bool get hasMount => activeMount != null;
-  bool get readOnly => activeMount?.readOnly ?? false;
 
   @override
   void dispose() {
@@ -93,9 +92,10 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 把设置里的「运行时参数」同步给传输层：并发数与限速都只在启动/改设置时生效。
+  /// 把设置里的「运行时参数」同步给传输层：并发数、下载目录与限速都只在启动/改设置时生效。
   void _applyRuntimeSettings() {
     transfers.maxConcurrent = _prefs.settings.maxConcurrent;
+    transfers.downloadRoot = _prefs.settings.downloadDir;
     TransferLimiter.instance.configure(
       uploadKbps: _prefs.settings.uploadLimitKbps,
       downloadKbps: _prefs.settings.downloadLimitKbps,
@@ -406,7 +406,7 @@ class AppState extends ChangeNotifier {
   /// 上传本地文件到当前目录。
   Future<void> uploadFiles(List<String> localPaths) async {
     final mount = activeMount;
-    if (mount == null || readOnly || localPaths.isEmpty) return;
+    if (mount == null || localPaths.isEmpty) return;
     final current = path;
     for (final p in localPaths) {
       await transfers.enqueueUpload(mount, p, current);
@@ -416,7 +416,7 @@ class AppState extends ChangeNotifier {
   /// 上传整个本地目录到当前目录（保留层级）。
   Future<int> uploadFolder(String localDir) async {
     final mount = activeMount;
-    if (mount == null || readOnly) return 0;
+    if (mount == null) return 0;
     return transfers.enqueueUploadDir(mount, localDir, path);
   }
 

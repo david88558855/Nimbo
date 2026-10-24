@@ -196,7 +196,7 @@ class _MountCard extends StatelessWidget {
                             size: 5),
                         const SizedBox(width: 5),
                         Text(
-                          isActive ? '当前挂载' : (mount.readOnly ? '只读' : '可读写'),
+                          isActive ? '当前挂载' : mount.protocol.label,
                           style: const TextStyle(
                               fontSize: 9.5,
                               fontWeight: FontWeight.w600,
@@ -352,12 +352,11 @@ class _Header extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              if (!state.readOnly) _UploadButton(state: state),
-              if (!state.readOnly) const SizedBox(width: 7),
-              if (!state.readOnly)
-                NimboButton(compact ? '新建' : '新建文件夹',
-                    icon: Icons.create_new_folder_outlined,
-                    onPressed: () => _newFolder(context, state)),
+              _UploadButton(state: state),
+              const SizedBox(width: 7),
+              NimboButton(compact ? '新建' : '新建文件夹',
+                  icon: Icons.create_new_folder_outlined,
+                  onPressed: () => _newFolder(context, state)),
               const SizedBox(width: 7),
               NimboButton('选择',
                   icon: Icons.checklist_rounded,
@@ -484,13 +483,11 @@ class _SelectionBar extends StatelessWidget {
               kind: NimboButtonKind.secondary,
               icon: Icons.download_rounded,
               onPressed: n == 0 ? null : () => _downloadPicked(context)),
-          if (!state.readOnly) ...[
-            const SizedBox(width: 6),
-            NimboButton('删除',
-                kind: NimboButtonKind.danger,
-                icon: Icons.delete_outline_rounded,
-                onPressed: n == 0 ? null : () => _deletePicked(context)),
-          ],
+          const SizedBox(width: 6),
+          NimboButton('删除',
+              kind: NimboButtonKind.danger,
+              icon: Icons.delete_outline_rounded,
+              onPressed: n == 0 ? null : () => _deletePicked(context)),
           const SizedBox(width: 4),
           IconButton(
             tooltip: '退出多选',
@@ -615,7 +612,7 @@ class _BodyState extends State<_Body> {
   Widget build(BuildContext context) {
     final state = widget.state;
     return DropTarget(
-      enable: !state.readOnly,
+      enable: true,
       onDragEntered: (_) => setState(() => _hover = true),
       onDragExited: (_) => setState(() => _hover = false),
       onDragDone: (details) async {
@@ -694,7 +691,7 @@ class _BodyState extends State<_Body> {
       return EmptyBlock(
         icon: Icons.folder_open_rounded,
         title: '这里还没有文件',
-        subtitle: state.readOnly ? '该挂载为只读' : '新建一个文件夹，或把文件拖到这里上传',
+        subtitle: '新建一个文件夹，或把文件拖到这里上传',
       );
     }
     return Container(
@@ -858,10 +855,8 @@ class _Row extends StatelessWidget {
                         value: 'download',
                         child: Text(entry.isDir ? '下载文件夹' : '下载',
                             style: const TextStyle(fontSize: 12))),
-                    if (!state.readOnly) ...[
-                      const PopupMenuItem(value: 'rename', child: Text('重命名', style: TextStyle(fontSize: 12))),
-                      const PopupMenuItem(value: 'delete', child: Text('删除', style: TextStyle(fontSize: 12))),
-                    ],
+                    const PopupMenuItem(value: 'rename', child: Text('重命名', style: TextStyle(fontSize: 12))),
+                    const PopupMenuItem(value: 'delete', child: Text('删除', style: TextStyle(fontSize: 12))),
                   ],
                 ),
               ),
@@ -1021,23 +1016,21 @@ void _showActions(BuildContext context, AppState state, RemoteEntry entry) {
               state.download(entry);
             },
           ),
-          if (!state.readOnly)
-            ListTile(
-              leading: const Icon(Icons.drive_file_rename_outline_rounded, size: 20),
-              title: const Text('重命名', style: TextStyle(fontSize: 13)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _rename(context, state, entry);
-              },
-            ),
-          if (!state.readOnly)
-            ListTile(
-              leading: const Icon(Icons.delete_outline_rounded, size: 20, color: NimboColors.danger),
-              title: const Text('删除', style: TextStyle(fontSize: 13, color: NimboColors.danger)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _delete(context, state, entry);
-              },
+          ListTile(
+            leading: const Icon(Icons.drive_file_rename_outline_rounded, size: 20),
+            title: const Text('重命名', style: TextStyle(fontSize: 13)),
+            onTap: () {
+              Navigator.pop(ctx);
+              _rename(context, state, entry);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_outline_rounded, size: 20, color: NimboColors.danger),
+            title: const Text('删除', style: TextStyle(fontSize: 13, color: NimboColors.danger)),
+            onTap: () {
+              Navigator.pop(ctx);
+              _delete(context, state, entry);
+            },
             ),
           const SizedBox(height: 8),
         ],
@@ -1108,7 +1101,6 @@ class _Details extends StatelessWidget {
             _meta('大小', entry.isDir ? '—' : humanBytes(entry.size)),
             _meta('修改时间', formatDate(entry.modified)),
             _meta('挂载', mount.name),
-            _meta('权限', mount.readOnly ? '只读' : '可读写'),
             const SizedBox(height: 14),
             if (!entry.isDir)
               SizedBox(

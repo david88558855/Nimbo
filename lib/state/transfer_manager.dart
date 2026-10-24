@@ -27,10 +27,16 @@ class TransferAborted implements Exception {
 /// - **中止在进度回调里抛出**。五个驱动的读写循环都会调 onProgress，
 ///   抛异常是最省改动、且对全部协议一致的中断点。
 class TransferManager extends ChangeNotifier {
-  TransferManager({this.maxConcurrent = 2});
+  TransferManager({this.maxConcurrent = 3});
 
   final List<TransferTask> tasks = [];
   int maxConcurrent;
+
+  /// 下载落盘根目录（来自设置；空 = 用默认目录）。
+  ///
+  /// 只影响**新入队**的任务：已经在队列里的任务保留当初算好的 localPath，
+  /// 否则改个设置会让跑了一半的任务写到另一个文件里。
+  String downloadRoot = '';
 
   final Map<String, Mount> _mounts = {};
   Timer? _ticker;
@@ -99,7 +105,7 @@ class TransferManager extends ChangeNotifier {
   /// 下载入口：文件直接入队，目录递归展开。返回入队文件数。
   Future<int> enqueueDownload(Mount mount, RemoteEntry entry) async {
     if (!entry.isDir) {
-      final dir = await downloadDir();
+      final dir = await downloadDir(root: downloadRoot);
       final localPath = '${dir.path}${Platform.pathSeparator}${sanitizeName(entry.name)}';
       _mounts[mount.id] = mount;
       tasks.insert(
@@ -125,7 +131,7 @@ class TransferManager extends ChangeNotifier {
   ///
   /// 单独开一条连接做列举（与传输任务互不影响），列完即关。
   Future<int> _enqueueDirectory(Mount mount, RemoteEntry root) async {
-    final base = await downloadDir();
+    final base = await downloadDir(root: downloadRoot);
     final rootLocal = Directory(
         '${base.path}${Platform.pathSeparator}${sanitizeName(root.name)}');
     if (!rootLocal.existsSync()) await rootLocal.create(recursive: true);
@@ -495,8 +501,26 @@ class TransferManager extends ChangeNotifier {
   }
 }
 
-/// 下载目录：Windows 落在「下载/Nimbo」，Android 落在应用文档目录。
-Future<Directory> downloadDir() async {
+/// 下载目录：优先用设置里指定的 [root]，否则 Windows 落在「下载/Nimbo」，
+/// Android 落在应用文档目录。
+///
+/// 指定目录不可用（被删、权限不足、路径变成了文件）时**静默回落**到默认目录：
+/// 用户换机器或手滑删了文件夹之后，下载还能继续，只是落回默认位置。
+Future<Directory> downloadDir({String root = ''}) async {
+  final custom = root.trim();
+  if (custom.isNotEmpty) {
+    try {
+      final dir = Directory(custom);
+      if (!dir.existsSync()) await dir.create(recursive: true);
+      // 写探针：exists 通过但不可写（只读盘 / 被策略限制）时也能提前发现。
+      final probe = File('${dir.path}${Platform.pathSeparator}.nimbo-write-test');
+      await probe.writeAsString('', flush: true);
+      await probe.delete();
+      return dir;
+    } catch (_) {
+      // 落到下面的默认目录
+    }
+  }
   if (Platform.isWindows) {
     final home = Platform.environment['USERPROFILE'];
     if (home != null && home.isNotEmpty) {
