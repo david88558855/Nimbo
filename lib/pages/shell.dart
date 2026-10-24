@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -191,11 +192,16 @@ class _Rail extends StatelessWidget {
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 9),
-            child: _MountSwitcher(state: state, onAddMount: onAddMount),
-          ),
-          const SizedBox(height: 10),
+          // Windows 桌面端不显示这个「未选择挂载 / 点击选择」切换器：
+          // 侧栏下方就是完整挂载列表（点一下即切换），「挂载管理」页也能添加挂载，
+          // 这里再放一个下拉是重复入口。其它平台（宽屏平板）保持原样。
+          if (defaultTargetPlatform != TargetPlatform.windows) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 9),
+              child: _MountSwitcher(state: state, onAddMount: onAddMount),
+            ),
+            const SizedBox(height: 10),
+          ],
           _NavItem(
             icon: Icons.folder_rounded,
             label: '全部文件',
