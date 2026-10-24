@@ -465,26 +465,30 @@ class S3Driver extends StorageDriver {
       state = await MultipartStore.load(mountId, key, length, partSize);
     }
 
-    String? uploadId = state?.uploadId;
-    var parts = <int, String>{...?state?.parts};
-
-    if (uploadId != null) {
+    // 解析 uploadId：有本地记录时先向服务端核对已传分片，失效则重开一次。
+    // 用局部函数而不是可空变量 + 类型提升，是为了让并发闭包里拿到的
+    // uid / parts 都是确定的非空值。
+    var parts = <int, String>{};
+    Future<String> resolveUploadId(String? cached) async {
+      if (cached == null) return _initMultipart(key);
       try {
         // 以服务端为准：本地记录可能比服务端多（例如 Complete 前被杀）。
-        parts = await _listParts(key, uploadId);
+        parts = await _listParts(key, cached);
+        return cached;
       } catch (_) {
         // uploadId 失效（过期 / 被 lifecycle 清理）：重新开一次，从头传。
-        uploadId = null;
         parts = <int, String>{};
+        return _initMultipart(key);
       }
     }
-    uploadId ??= await _initMultipart(key);
+
+    final uid = await resolveUploadId(state?.uploadId);
 
     await MultipartStore.save(
       mountId,
       key,
       MultipartState(
-          uploadId: uploadId, length: length, partSize: partSize, parts: parts),
+          uploadId: uid, length: length, partSize: partSize, parts: parts),
     );
 
     // 进度 = 已完成分片字节 + 在传分片的已发送字节。
@@ -548,7 +552,7 @@ class S3Driver extends StorageDriver {
           final res = await _send<dynamic>(
             'PUT',
             _requestPath(key),
-            query: {'partNumber': '$n', 'uploadId': uploadId},
+            query: {'partNumber': '$n', 'uploadId': uid},
             body: chunk,
             contentLength: chunk.length,
             onProgress: (sent, _) {
@@ -567,7 +571,7 @@ class S3Driver extends StorageDriver {
             mountId,
             key,
             MultipartState(
-                uploadId: uploadId!, length: length, partSize: partSize, parts: parts),
+                uploadId: uid, length: length, partSize: partSize, parts: parts),
           );
         } catch (e) {
           inFlight.remove(n);
@@ -603,7 +607,7 @@ class S3Driver extends StorageDriver {
     await _send<dynamic>(
       'POST',
       _requestPath(key),
-      query: {'uploadId': uploadId},
+      query: {'uploadId': uid},
       body: body,
       contentLength: utf8.encode(body).length,
     );

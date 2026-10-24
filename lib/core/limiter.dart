@@ -10,7 +10,8 @@ import 'dart:math' as math;
 /// - **只在循环里 `await`，不做精确定时**：令牌不足时睡一小段（最多 1 秒），
 ///   醒来再补。误差在几十毫秒量级，对「别把上行带宽打满」这个目标足够。
 class TokenBucket {
-  TokenBucket(this.rate);
+  /// 构造时直接给定初始速率（字节/秒，0 = 不限）。
+  TokenBucket(int rate) : _rate = rate <= 0 ? 0 : rate;
 
   int _rate;
   double _tokens = 0;
@@ -52,7 +53,7 @@ class TokenBucket {
         continue;
       }
       final need = want - _tokens;
-      final waitMs = (need * 1000 / _rate).ceil().clamp(1, 1000);
+      final waitMs = (need * 1000 / _rate).ceil().clamp(1, 1000).toInt();
       await Future<void>.delayed(Duration(milliseconds: waitMs));
     }
   }
