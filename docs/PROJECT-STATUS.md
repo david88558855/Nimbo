@@ -943,9 +943,11 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
 | 2026-10-24 13:08 | `25e5d01` | — | — | — | 文档：构建记录补到 f5a59f6 |
 | 2026-10-24 13:15 | `2036ba3` | ✅（含单测 41 项） | ✅ | ✅ | 删除设置页说明文字；点文件默认隐藏 |
 | 2026-10-24 13:25 | `5ecaf78` | ✅（含单测 41 项） | ✅ | ✅ | 删除「数据」卡片；下载目录默认值按平台（Android 公共 Download） |
-| 2026-10-24 13:34 | `208b4c1` | ✅（含单测 41 项） | ✅ | ✅ | **当前最终状态**：安卓挂载弹窗两处布局修正（代理行溢出、底部按钮居中） |
+| 2026-10-24 13:34 | `208b4c1` | ✅（含单测 41 项） | ✅ | ✅ | 安卓挂载弹窗两处布局修正（代理行溢出、底部按钮居中） |
+| 2026-10-24 13:44 | `ce83605` | — | — | — | 文档：构建记录补到 208b4c1 |
+| 2026-10-24 13:50 | `feaf088` | ✅（含单测 41 项） | ✅ | ✅ | **当前最终状态**：Windows 端隐藏侧栏挂载切换器（平板保留） |
 
-- 最近一次成功：commit `208b4c1`（analyze + flutter test 41 项 + android-arm64 + windows-x64 全绿）
+- 最近一次成功：commit `feaf088`（analyze + flutter test 41 项 + android-arm64 + windows-x64 全绿）
 - `flutter analyze` 现有 17 条 info（tray_manager legacy API 的 deprecated 提示为主），无 warning/error
 - 门禁现在是两条：`flutter analyze`（约 1.5 min）与 `flutter test`（纯逻辑单测，约 1 min）
 - 产物：`windows-x64-portable.zip` 12.53 MB（内含 `Nimbo.exe`）、`app-release.apk` 20.5 MB（arm64 release）
