@@ -327,29 +327,31 @@ class _Header extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Flexible(
-                child: Text(title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: NimboText.display),
-              ),
-              const SizedBox(width: 10),
-              // 可收缩 + 省略号：统计文字比按钮先让位，否则窄屏会顶出边界。
-              Flexible(
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 3),
-                  child: Text(
-                    // 容量只在协议支持时出现（WebDAV quota / SFTP statvfs），否则省略。
-                    '${state.entries.length} 项 · ${humanBytes(totalSize)}'
-                    '${state.space == null ? '' : ' · 剩余 ${humanBytes(state.space!.free)}'}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        fontSize: 10.5, fontWeight: FontWeight.w600, color: NimboColors.ink3),
-                  ),
+              // 标题与统计合成一列并占满剩余宽度：窄屏 + 放大字号时按钮不会被顶出去，
+              // 也不会出现「标题和统计各占 1/3、按钮前留白」的怪比例。
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: NimboText.display),
+                    const SizedBox(height: 2),
+                    Text(
+                      // 容量只在协议支持时出现（WebDAV quota / SFTP statvfs），否则省略。
+                      '${state.entries.length} 项 · ${humanBytes(totalSize)}'
+                      '${state.space == null ? '' : ' · 剩余 ${humanBytes(state.space!.free)}'}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 10.5, fontWeight: FontWeight.w600, color: NimboColors.ink3),
+                    ),
+                  ],
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 10),
               if (!state.readOnly) _UploadButton(state: state),
               if (!state.readOnly) const SizedBox(width: 7),
               if (!state.readOnly)
