@@ -637,8 +637,13 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
 | 2026-10-24 08:26 | `06331cc` | ✅（含单测） | — | — | 暂停被 dio 包装时仍按「已暂停」处理 + 文档补到 P4（平台构建被取消） |
 | 2026-10-24 08:31 | `75042b8` | ✅（含单测） | ✅ | ✅ | 限速行改 Wrap；**本轮双端全绿** |
 | 2026-10-24 08:36 | `7653d40` | ✅（含单测） | ✅ | ✅ | **本轮最终状态**：切换挂载清空容量、本地驱动 space 能力位修正 |
+| 2026-10-24 08:48 | `ffdc097` | ✅（含单测） | — | — | WebDAV 上传续传（探测式 partial PUT + 自校验 + 降级）；平台构建被后续提交取代 |
+| 2026-10-24 08:55 | `e3ede8f` | ❌ | — | — | Android 字号 1.2 倍：`defaultTargetPlatform` 未导入（material 不透出） |
+| 2026-10-24 08:58 | `8707c4d` | — | — | — | 按钮高度二次放大修正（被后续提交取代，构建取消） |
+| 2026-10-24 09:04 | `d40b7a3` | ✅（含单测） | ✅ | ✅ | 补 foundation 导入；**字号改动双端通过** |
+| 2026-10-24 09:14 | `f0fd062` | ✅（含单测） | ✅ | ✅ | **当前最终状态**：S3/WebDAV 端口归入地址、去掉独立端口框 |
 
-- 最近一次成功：commit `7653d40`（analyze + flutter test + android-arm64 + windows-x64 全绿）
+- 最近一次成功：commit `f0fd062`（analyze + flutter test + android-arm64 + windows-x64 全绿）
 - 门禁现在是两条：`flutter analyze`（约 1.5 min）与 `flutter test`（纯逻辑单测，约 1 min）
 - 产物：`windows-x64-portable.zip` 12.53 MB（内含 `Nimbo.exe`）、`app-release.apk` 20.5 MB（arm64 release）
 - 耗时参考：analyze ≈ 1.5 min，windows ≈ 5 min，android ≈ 6 min
