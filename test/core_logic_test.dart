@@ -256,6 +256,49 @@ void main() {
     });
   });
 
+  group('配置解析（prefs.json 容错）', () {
+    test('正常列表全部解析，顺序不变', () {
+      final r = parseMounts([
+        {'id': 'a', 'name': 'A', 'protocol': 'webdav', 'host': 'https://a.example.com'},
+        {'id': 'b', 'name': 'B', 'protocol': 's3', 'host': 's3.example.com'},
+      ]);
+      expect(r.mounts.map((m) => m.id).toList(), ['a', 'b']);
+      expect(r.mounts.first.name, 'A');
+      expect(r.skipped, 0);
+    });
+
+    test('非列表输入不抛错，返回空', () {
+      expect(parseMounts(null).mounts, isEmpty);
+      expect(parseMounts({'id': 'a'}).mounts, isEmpty);
+    });
+
+    test('坏条目只跳过自己，不连累后面的挂载', () {
+      // 之前是惰性链 + clear()，第二条坏掉会让第三条一起消失（BUG-02）。
+      final r = parseMounts([
+        {'id': 'a', 'name': 'A', 'protocol': 'webdav'},
+        'not-a-map', // 类型不对
+        {'id': 'c', 'name': 'C', 'protocol': 's3'},
+      ]);
+      expect(r.mounts.map((m) => m.id).toList(), ['a', 'c']);
+      expect(r.skipped, 1);
+    });
+
+    test('缺 id 的条目被跳过（不让空 id 进列表）', () {
+      final r = parseMounts([
+        {'name': '没有 id', 'protocol': 'webdav'},
+        {'id': 'ok', 'name': '有 id', 'protocol': 'webdav'},
+      ]);
+      expect(r.mounts.map((m) => m.id).toList(), ['ok']);
+      expect(r.skipped, 1);
+    });
+
+    test('null 元素被跳过', () {
+      final r = parseMounts([null, {'id': 'x', 'name': 'X', 'protocol': 'ftp'}]);
+      expect(r.mounts.single.id, 'x');
+      expect(r.skipped, 1);
+    });
+  });
+
   group('设置默认值', () {
     test('并发任务默认 3', () {
       expect(AppSettings().maxConcurrent, 3);

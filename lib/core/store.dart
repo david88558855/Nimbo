@@ -119,6 +119,35 @@ class AppSettings {
   }
 }
 
+/// 解析 `prefs.json` 里的挂载列表：**逐条容错**，坏条目跳过并计数。
+///
+/// 之前用的是 `whereType().map(Mount.fromJson)` 惰性链：任一条目抛错就中断
+/// `addAll`，而 `mounts` 已经被 `clear()` 过 —— 结果是「后面所有挂载消失」，
+/// 且下一次保存会把这份残缺列表写回磁盘，等于永久删除（BUG-02）。
+/// 抽成纯函数便于单测（不碰文件系统、不依赖插件）。
+({List<Mount> mounts, int skipped}) parseMounts(Object? raw) {
+  final out = <Mount>[];
+  var skipped = 0;
+  if (raw is! List) return (mounts: out, skipped: skipped);
+  for (final item in raw) {
+    if (item is! Map<String, dynamic>) {
+      skipped++;
+      continue;
+    }
+    try {
+      final m = Mount.fromJson(item);
+      if (m.id.isEmpty) {
+        skipped++;
+        continue;
+      }
+      out.add(m);
+    } catch (_) {
+      skipped++;
+    }
+  }
+  return (mounts: out, skipped: skipped);
+}
+
 class Prefs {
   Prefs._();
   static final Prefs instance = Prefs._();
@@ -129,6 +158,10 @@ class Prefs {
   String dataDirPath = '';
   bool portable = false;
 
+  /// 保存串行化用：多个调用方（`open` / `updateSettings` / 退出 `flush`）
+  /// 可能并发触发保存，必须排队执行，否则两路会同时写同一个临时文件（BUG-01）。
+  Future<void> _writing = Future<void>.value();
+
   Future<void> load() async {
     final dir = await AppPaths.dataDir();
     dataDirPath = dir.path;
@@ -136,26 +169,55 @@ class Prefs {
         dir.path.startsWith(File(Platform.resolvedExecutable).parent.path);
     final f = File(await AppPaths.prefsFile());
     if (!f.existsSync()) return;
+
+    Object? decoded;
     try {
-      final raw = jsonDecode(await f.readAsString());
-      if (raw is! Map<String, dynamic>) return;
-      final list = raw['mounts'];
-      if (list is List) {
-        mounts
-          ..clear()
-          ..addAll(list
-              .whereType<Map<String, dynamic>>()
-              .map(Mount.fromJson)
-              .where((m) => m.id.isNotEmpty));
-      }
-      activeMountId = raw['activeMountId'] as String?;
-      settings.load(raw['settings'] as Map<String, dynamic>?);
+      decoded = jsonDecode(await f.readAsString());
     } catch (_) {
-      // 配置损坏时按空配置启动，不阻塞进入应用
+      // 整份 JSON 坏掉：留一份备份，按空配置启动（不阻塞进应用）。
+      await _backupBroken(f, 'corrupt');
+      return;
+    }
+    if (decoded is! Map<String, dynamic>) {
+      await _backupBroken(f, 'format');
+      return;
+    }
+
+    final parsed = parseMounts(decoded['mounts']);
+    mounts
+      ..clear()
+      ..addAll(parsed.mounts);
+    // 有条目解析失败时先备份原文件：这份列表随时可能被下一次保存覆盖。
+    if (parsed.skipped > 0) {
+      await _backupBroken(f, 'entries');
+    }
+
+    activeMountId = decoded['activeMountId'] as String?;
+    settings.load(decoded['settings'] as Map<String, dynamic>?);
+  }
+
+  /// 把读坏的配置留一份 `prefs.json.bak-<原因>-<时间>`，避免被后续保存覆盖。
+  Future<void> _backupBroken(File f, String tag) async {
+    try {
+      final stamp = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '-')
+          .replaceAll('.', '-');
+      await f.copy('${f.path}.bak-$tag-$stamp');
+    } catch (_) {
+      // 备份失败不影响启动
     }
   }
 
-  Future<void> save() async {
+  /// 保存配置。**串行执行**：同时来多次保存会排队，最后一次写入的一定是最新状态。
+  Future<void> save() {
+    final next = _writing.then((_) => _saveNow());
+    // 单次失败不能把后续保存全卡死：链上吞掉错误，错误仍会抛给本次调用方。
+    _writing = next.catchError((Object _) {});
+    return next;
+  }
+
+  Future<void> _saveNow() async {
     final data = {
       'version': 1,
       'mounts': mounts.map((m) => m.toJson()).toList(),
@@ -163,13 +225,18 @@ class Prefs {
       'settings': settings.toJson(),
     };
     final path = await AppPaths.prefsFile();
-    final tmp = File('$path.tmp');
+    // 每次用唯一临时名：即使有意外并发也不会互相写坏同一份 .tmp；
+    // 最后一步 rename 在 Windows 上是原子的。
+    final tmp = File('$path.${DateTime.now().microsecondsSinceEpoch}.tmp');
     await tmp.writeAsString(const JsonEncoder.withIndent('  ').convert(data));
     try {
       await tmp.rename(path);
     } on FileSystemException {
+      // 目标被占用（杀毒/索引）时退回覆盖写，再删临时文件。
       await File(path).writeAsString(await tmp.readAsString());
-      await tmp.delete();
+      try {
+        await tmp.delete();
+      } catch (_) {}
     }
   }
 

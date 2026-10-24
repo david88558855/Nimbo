@@ -196,7 +196,8 @@ class Mount {
       };
 
   factory Mount.fromJson(Map<String, dynamic> j) => Mount(
-        id: j['id'] as String,
+        // 配置可能被手工改坏：缺 id 时留空串，由 Prefs.load 逐条过滤（BUG-02）。
+        id: (j['id'] as String?) ?? '',
         name: (j['name'] as String?) ?? '未命名',
         protocol: MountProtocolX.parse(j['protocol'] as String?),
         host: (j['host'] as String?) ?? '',

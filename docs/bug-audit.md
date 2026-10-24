@@ -4,8 +4,8 @@
 > 范围：`lib/` 全量（状态层 / 传输层 / 五个驱动 / 平台层 / 主要页面），不含 `design/`、`tools/`
 > 方式：静态阅读 + 对照已踩过的坑（`PROJECT-STATUS.md` 第 5 节）。**尚未在真机跑过**，
 > 下面每条都标了复现条件，修复后请按「验收标准」逐条确认。
-> 结论：**未发现会让程序立刻不可用的缺陷**；但有 4 条会造成「配置丢失 / 状态错乱」，
-> 建议优先处理（见文末批次计划）。
+> 结论：**未发现会让程序立刻不可用的缺陷**；但有 4 条会造成「配置丢失 / 状态错乱」。
+> **进展：BUG-01 / BUG-02 已修**（2026-10-24，Batch A），其余待处理（见文末进度勾选）。
 
 ---
 
@@ -89,7 +89,7 @@
 
 | 批次 | 内容 | 为什么这一批 | 预计改动面 |
 |---|---|---|---|
-| **Batch A（数据安全）** | BUG-01、BUG-02（+ `Mount.fromJson` 的 `id` 兜底） | 唯一会「用几天后挂载全没」的路径；顺手补 `prefs` 读写单测（坏条目 / 并发 save 各一例） | `core/store.dart`、`core/models.dart`、`test/core_logic_test.dart` |
+| **Batch A（数据安全）** ✅ 已完成 | BUG-01、BUG-02（+ `Mount.fromJson` 的 `id` 兜底） | 唯一会「用几天后挂载全没」的路径；已补 `parseMounts` 单测 5 例（并发 save 无法在纯单测里模拟，靠串行化实现保证） | `core/store.dart`、`core/models.dart`、`test/core_logic_test.dart` |
 | **Batch B（会话与取消）** | BUG-03、BUG-04、BUG-10、BUG-11、BUG-14 | 都是「点了没反应 / 状态不对」的用户可感知问题，且改动集中在 `app_state` + `transfer_manager` + `single_instance` | 同上 3 文件 |
 | **Batch C（正确性与性能）** | BUG-05、BUG-06、BUG-07、BUG-08 | 纯局部修复，风险低；BUG-05/06 有明确复现步骤，容易写用例 | `limiter.dart`、`app_state.dart`、`transfer_manager.dart` |
 | **Batch D（加固）** | BUG-09、BUG-12 | BUG-09 涉及驱动读写循环，改完必须真机跑一次大文件暂停/取消 | `ftp_driver.dart`、`sftp_driver.dart`、`app_state.dart` |
@@ -97,8 +97,9 @@
 
 **进度勾选**（修完把 `[ ]` 改成 `[x]` 并写上 commit）：
 
-- [ ] BUG-01 配置并发写（P0）
-- [ ] BUG-02 挂载解析失败丢配置（P0）
+- [x] BUG-01 配置并发写（P0）—— `Prefs.save()` 改为 Future 链串行 + 每次唯一 `.tmp` 名
+- [x] BUG-02 挂载解析失败丢配置（P0）—— 抽出 `parseMounts()` 逐条容错，坏条目跳过并备份 `prefs.json.bak-*`；
+      `Mount.fromJson` 的 `id` 改 `as String?` 兜底
 - [ ] BUG-03 sessionFor 去重（P1）
 - [ ] BUG-04 取消后残留半截文件（P1）
 - [ ] BUG-05 运行中改限速除零（P2）
