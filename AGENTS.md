@@ -58,6 +58,12 @@ gh run view --job $JOB --log-failed | sed -e 's/\x1b\[[0-9;]*m//g' | grep -E "er
   `Authorization` 会丢，表现为全站 401。
 - **没有「只读挂载」开关了**：`Mount.readOnly` 已删，写操作门禁只看 `activeMount` 是否存在。
   老配置里的 `readOnly` 键会被忽略；不要重新引入这个字段（权限问题应交给服务端 403）。
+- **多挂载会话**：`AppState._sessions` 是「每挂载一条常驻会话」，`_driver` 只是按当前挂载查表。
+  访问其它挂载用 `sessionFor(mount)`，**不要 close**（会掉线）；改配置/删挂载必须
+  `dropSession()`，否则会拿旧凭据连老地址。
+- **复制/移动**：`StorageDriver.copyEntry()`（默认临时文件中转，本地/WebDAV 有服务端实现）+
+  `AppState.copyOrMoveEntries()`（同挂载移动=rename、跨挂载=下载再上传）。
+  目录**不能**搬进自己或子目录，入口处已拦，新增入口要复制这条检查。
 - **下载目录**：`AppSettings.downloadDir`（空 = 默认）→ `TransferManager.downloadRoot` →
   `downloadDir(root:)`。回落链是「用户目录 → 平台默认（Windows `下载/Nimbo`、
   Android `/storage/emulated/0/Download/Nimbo`）→ 应用文档目录」，每级都用写探针验证；

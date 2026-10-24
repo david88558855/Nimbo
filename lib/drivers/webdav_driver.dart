@@ -467,6 +467,21 @@ class WebDavDriver extends StorageDriver {
   }
 
   @override
+  @override
+  Future<void> copyEntry(RemoteEntry from, String to) async {
+    // 服务端复制：不经过本地，大文件也不吃带宽。
+    final res = await _dio.request<dynamic>(
+      _uri(from.path).toString(),
+      options: Options(
+        method: 'COPY',
+        headers: {'Destination': _uri(to).toString(), 'Overwrite': 'T'},
+        validateStatus: (s) => s != null && s < 500,
+      ),
+    );
+    _check(res, '复制');
+  }
+
+  @override
   Future<void> move(String from, String to) async {
     final res = await _dio.request<dynamic>(
       _uri(from).toString(),

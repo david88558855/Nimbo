@@ -110,6 +110,27 @@ abstract class StorageDriver {
 
   Future<void> move(String from, String to);
 
+  /// 复制一个**条目**（文件或目录）到 `to`。
+  ///
+  /// 默认实现是「下载到临时文件 → 再上传」，五个协议都能跑，代价是要过一遍本地磁盘
+  /// （大文件明显慢）。协议本身支持服务端复制的应当覆写：WebDAV 用 `COPY`、
+  /// 本地用 `File.copy`、S3 用 `CopyObject`。
+  ///
+  /// 目录的递归由调用方（`AppState`）负责：这里只处理传进来的这一个条目，
+  /// 目录语义由调用方先 `mkdir` 再逐个 `copyEntry`。
+  Future<void> copyEntry(RemoteEntry from, String to) async {
+    final tmp = File('${Directory.systemTemp.path}${Platform.pathSeparator}'
+        'nimbo-copy-${DateTime.now().microsecondsSinceEpoch}-${from.name}');
+    try {
+      await downloadTo(from.path, tmp.path);
+      await uploadFile(tmp.path, to);
+    } finally {
+      try {
+        if (tmp.existsSync()) await tmp.delete();
+      } catch (_) {}
+    }
+  }
+
   /// 连接测试：列一次根目录，返回条目数。
   Future<int> probe() async {
     final items = await list('/');

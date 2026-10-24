@@ -515,7 +515,7 @@ Future<Directory> downloadDir({String root = ''}) async {
     if (dir != null) return dir;
   }
 
-  final preferred = _platformDownloadPath();
+  final preferred = await _platformDownloadPath();
   if (preferred != null) {
     final dir = await _ensureWritableDir(preferred);
     if (dir != null) return dir;
@@ -527,17 +527,59 @@ Future<Directory> downloadDir({String root = ''}) async {
 }
 
 /// 各平台的「下载」根目录（不含兜底）。返回 null 表示该平台没有约定位置。
-String? _platformDownloadPath() {
-  if (Platform.isWindows) {
-    final home = Platform.environment['USERPROFILE'];
-    if (home != null && home.isNotEmpty) return '$home\\Downloads\\Nimbo';
-    return null;
-  }
+Future<String?> _platformDownloadPath() async {
+  if (Platform.isWindows) return _windowsDownloadsDir();
   if (Platform.isAndroid) {
     // 公共下载目录：文件管理器/微信/QQ 都能直接看到，比应用沙盒目录有用。
     return '/storage/emulated/0/Download/Nimbo';
   }
   return null;
+}
+
+/// Windows 的「下载」目录，**跟随系统设置**。
+///
+/// 不能写死 `%USERPROFILE%\Downloads`：用户把下载位置改到 D 盘、或被 OneDrive
+/// 接管之后，资源管理器里的「下载」已经不在用户目录下，写死会让文件落到一个
+/// 用户根本找不到的隐藏目录里。真值在注册表：
+/// `HKCU\...\Explorer\User Shell Folders` 下的
+/// `{374DE290-123F-4565-9164-39C4925E467B}`（REG_EXPAND_SZ，值里可能带 `%USERPROFILE%`）。
+///
+/// 查不到（极老系统 / 精简版）才退回 `%USERPROFILE%\Downloads`。
+Future<String?> _windowsDownloadsDir() async {
+  final base = await _queryShellDownloads() ?? _expandWindowsEnv(r'%USERPROFILE%\Downloads');
+  if (base == null || base.isEmpty) return null;
+  return '$base\Nimbo';
+}
+
+/// 读注册表里的「下载」已知文件夹（失败/不存在返回 null）。
+Future<String?> _queryShellDownloads() async {
+  try {
+    final r = await Process.run('reg', [
+      'query',
+      r'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders',
+      '/v',
+      '{374DE290-123F-4565-9164-39C4925E467B}',
+    ]);
+    if (r.exitCode != 0) return null;
+    final out = '${r.stdout}';
+    final m = RegExp(
+      r'\{374DE290-123F-4565-9164-39C4925E467B\}\s+REG_(?:EXPAND_)?SZ\s+(.+)',
+    ).firstMatch(out);
+    final value = m?.group(1)?.trim();
+    if (value == null || value.isEmpty) return null;
+    return _expandWindowsEnv(value);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// 展开注册表值里的 `%VAR%`；有变量展开不了就返回 null（当作无效路径）。
+String? _expandWindowsEnv(String value) {
+  final expanded = value.replaceAllMapped(RegExp(r'%([^%]+)%'), (m) {
+    final key = m.group(1)!;
+    return Platform.environment[key] ?? Platform.environment[key.toUpperCase()] ?? m.group(0)!;
+  });
+  return expanded.contains('%') ? null : expanded;
 }
 
 /// 建目录 + 写一个空探针：`exists` 会撒谎（存在但只读、或路径变成了文件），

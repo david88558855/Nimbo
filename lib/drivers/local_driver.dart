@@ -170,6 +170,16 @@ class LocalDriver extends StorageDriver {
   }
 
   @override
+  @override
+  Future<void> copyEntry(RemoteEntry from, String to) async {
+    // 本地复制不必绕临时文件：直接让文件系统拷。
+    final dst = _fs(to);
+    final parent = Directory(File(dst).parent.path);
+    if (!parent.existsSync()) await parent.create(recursive: true);
+    await File(_fs(from.path)).copy(dst);
+  }
+
+  @override
   Future<void> move(String from, String to) async {
     final src = _fs(from);
     final dst = _fs(to);

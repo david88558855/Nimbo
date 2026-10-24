@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import '../app/theme.dart';
 import '../core/format.dart';
 import '../core/models.dart';
+import '../drivers/errors.dart';
 import '../state/app_state.dart';
 import '../ui/kit.dart';
+import 'pick_destination.dart';
 import 'preview_page.dart';
 
 class FilesPage extends StatelessWidget {
@@ -192,11 +194,17 @@ class _MountCard extends StatelessWidget {
                     Row(
                       children: [
                         StatusDot(
-                            color: isActive ? NimboColors.ok : const Color(0xFFB6C6D6),
+                            color: state.isConnected(mount.id)
+                                ? NimboColors.ok
+                                : const Color(0xFFB6C6D6),
                             size: 5),
                         const SizedBox(width: 5),
                         Text(
-                          isActive ? '当前挂载' : mount.protocol.label,
+                          // 多个挂载是「同时在线」的，所以除了「当前浏览」还要标出连接状态。
+                          isActive
+                              ? '当前浏览'
+                              : '${mount.protocol.label} · '
+                                  '${state.isConnected(mount.id) ? '已连接' : '未连接'}',
                           style: const TextStyle(
                               fontSize: 9.5,
                               fontWeight: FontWeight.w600,
@@ -479,6 +487,23 @@ class _SelectionBar extends StatelessWidget {
             ),
           ),
           const Spacer(),
+          // 复制/移动放溢出菜单：多选条在手机上本来就窄，再摆两个按钮会挤掉文字。
+          PopupMenuButton<String>(
+            tooltip: '更多操作',
+            padding: EdgeInsets.zero,
+            enabled: n > 0,
+            icon: const Icon(Icons.more_horiz_rounded, size: 16, color: NimboColors.ink3),
+            onSelected: (v) {
+              final items = state.pickedEntries;
+              if (items.isEmpty) return;
+              _copyMoveTo(context, state, items, move: v == 'move');
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'copy', child: Text('复制到…', style: TextStyle(fontSize: 12))),
+              PopupMenuItem(value: 'move', child: Text('移动到…', style: TextStyle(fontSize: 12))),
+            ],
+          ),
+          const SizedBox(width: 4),
           NimboButton('下载',
               kind: NimboButtonKind.secondary,
               icon: Icons.download_rounded,
@@ -856,6 +881,8 @@ class _Row extends StatelessWidget {
                         child: Text(entry.isDir ? '下载文件夹' : '下载',
                             style: const TextStyle(fontSize: 12))),
                     const PopupMenuItem(value: 'rename', child: Text('重命名', style: TextStyle(fontSize: 12))),
+                    const PopupMenuItem(value: 'copy', child: Text('复制到…', style: TextStyle(fontSize: 12))),
+                    const PopupMenuItem(value: 'move', child: Text('移动到…', style: TextStyle(fontSize: 12))),
                     const PopupMenuItem(value: 'delete', child: Text('删除', style: TextStyle(fontSize: 12))),
                   ],
                 ),
@@ -865,6 +892,36 @@ class _Row extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// 复制/移动：先选目标目录（可选别的挂载），再交给 `AppState.copyOrMoveEntries`。
+///
+/// 成功后退多选并提示处理了多少个文件；失败用 `describeError` 给可读原因。
+Future<void> _copyMoveTo(
+  BuildContext context,
+  AppState state,
+  List<RemoteEntry> entries, {
+  required bool move,
+}) async {
+  if (entries.isEmpty) return;
+  final target = await pickDestination(context, state, move: move);
+  if (target == null || !context.mounted) return;
+  try {
+    final n = await state.copyOrMoveEntries(
+      entries,
+      targetMount: target.mount,
+      targetPath: target.path,
+      move: move,
+    );
+    if (state.selectionMode) state.exitSelection();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(move ? '已移动 $n 个文件到 ${target.label}' : '已复制 $n 个文件到 ${target.label}'),
+    ));
+  } catch (e) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(describeError(e))));
   }
 }
 
@@ -878,6 +935,12 @@ void _onMenu(BuildContext context, AppState state, RemoteEntry entry, String act
       break;
     case 'rename':
       _rename(context, state, entry);
+      break;
+    case 'copy':
+      _copyMoveTo(context, state, [entry], move: false);
+      break;
+    case 'move':
+      _copyMoveTo(context, state, [entry], move: true);
       break;
     case 'delete':
       _delete(context, state, entry);
@@ -1022,6 +1085,22 @@ void _showActions(BuildContext context, AppState state, RemoteEntry entry) {
             onTap: () {
               Navigator.pop(ctx);
               _rename(context, state, entry);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.copy_all_rounded, size: 20),
+            title: const Text('复制到…', style: TextStyle(fontSize: 13)),
+            onTap: () {
+              Navigator.pop(ctx);
+              _copyMoveTo(context, state, [entry], move: false);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.drive_file_move_outline, size: 20),
+            title: const Text('移动到…', style: TextStyle(fontSize: 13)),
+            onTap: () {
+              Navigator.pop(ctx);
+              _copyMoveTo(context, state, [entry], move: true);
             },
           ),
           ListTile(
