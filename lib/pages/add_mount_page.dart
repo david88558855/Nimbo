@@ -332,11 +332,13 @@ class _AddMountDialogState extends State<AddMountDialog> {
             ),
             const Divider(height: 1, color: NimboColors.line),
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 16, 12),
+              // 左右内边距对称：原来左 20 / 右 16 会让居中后的按钮看着偏左。
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
               child: Row(
+                // 居中而不是靠右：窄屏（放大字号后）靠右会贴着右边界，看着像错位。
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // 底部只留操作按钮：原来的「凭据写入系统安全存储」说明已移除。
-                  const Spacer(),
+                  // 底部只留操作按钮：原来的「凭据写入安全存储」说明已移除。
                   NimboButton(_testing ? '测试中…' : '测试连接',
                       kind: NimboButtonKind.secondary,
                       icon: Icons.bolt_rounded,
@@ -562,9 +564,6 @@ class _AddMountDialogState extends State<AddMountDialog> {
               const SizedBox(width: 4),
               const Text('独立代理',
                   style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-              const SizedBox(width: 8),
-              const Text('仅对本挂载生效，不影响其他挂载',
-                  style: TextStyle(fontSize: 10, color: NimboColors.ink3)),
             ],
           ),
           if (_proxyEnabled) ...[
