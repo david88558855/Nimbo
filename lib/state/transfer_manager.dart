@@ -548,7 +548,7 @@ Future<String?> _platformDownloadPath() async {
 Future<String?> _windowsDownloadsDir() async {
   final base = await _queryShellDownloads() ?? _expandWindowsEnv(r'%USERPROFILE%\Downloads');
   if (base == null || base.isEmpty) return null;
-  return '${base}\\Nimbo';
+  return '$base\\Nimbo';
 }
 
 /// 读注册表里的「下载」已知文件夹（失败/不存在返回 null）。
