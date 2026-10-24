@@ -919,9 +919,13 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
 | 2026-10-24 11:20 | `165f7f3` | — | — | — | 移除只读挂载/底部提示、下载目录、并发默认 3（被字体提交取代，构建取消） |
 | 2026-10-24 11:29 | `2217d69` | ✅（含单测 40 项） | ✅ | ✅ | Windows 界面字体换思源黑体（内置 400/500/700）+ 上一条全部内容 |
 | 2026-10-24 12:40 | `7d04c64` | — | — | — | 文档：构建记录补到 2217d69 |
-| 2026-10-24 12:52 | `f5a59f6` | ✅（含单测 40 项） | ✅ | ✅ | **当前最终状态**：Windows 字体改 Arial（移除内置 24MB 字体）；托盘左键单击无响应、双击与菜单项共用 `showWindow()` |
+| 2026-10-24 12:52 | `f5a59f6` | ✅（含单测 40 项） | ✅ | ✅ | Windows 字体改 Arial（移除内置 24MB 字体）；托盘左键单击无响应、双击与菜单项共用 `showWindow()` |
+| 2026-10-24 13:08 | `25e5d01` | — | — | — | 文档：构建记录补到 f5a59f6 |
+| 2026-10-24 13:15 | `2036ba3` | ✅（含单测 41 项） | ✅ | ✅ | 删除设置页说明文字；点文件默认隐藏 |
+| 2026-10-24 13:25 | `5ecaf78` | ✅（含单测 41 项） | ✅ | ✅ | 删除「数据」卡片；下载目录默认值按平台（Android 公共 Download） |
+| 2026-10-24 13:34 | `208b4c1` | ✅（含单测 41 项） | ✅ | ✅ | **当前最终状态**：安卓挂载弹窗两处布局修正（代理行溢出、底部按钮居中） |
 
-- 最近一次成功：commit `f5a59f6`（analyze + flutter test 40 项 + android-arm64 + windows-x64 全绿）
+- 最近一次成功：commit `208b4c1`（analyze + flutter test 41 项 + android-arm64 + windows-x64 全绿）
 - `flutter analyze` 现有 17 条 info（tray_manager legacy API 的 deprecated 提示为主），无 warning/error
 - 门禁现在是两条：`flutter analyze`（约 1.5 min）与 `flutter test`（纯逻辑单测，约 1 min）
 - 产物：`windows-x64-portable.zip` 12.53 MB（内含 `Nimbo.exe`）、`app-release.apk` 20.5 MB（arm64 release）
