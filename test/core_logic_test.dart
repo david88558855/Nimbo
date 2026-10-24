@@ -291,6 +291,14 @@ void main() {
     test('没配下载目录时为空（走默认目录）', () {
       expect((AppSettings()..load(const {})).downloadDir, '');
     });
+
+    test('隐藏点文件默认开启，显式写 false 才展开', () {
+      expect(AppSettings().hideHiddenFiles, isTrue);
+      // 老配置里没有这个键 → 按「隐藏」处理
+      expect((AppSettings()..load(const {})).hideHiddenFiles, isTrue);
+      // 用户手动关掉 → 保留
+      expect((AppSettings()..load({'hideHiddenFiles': false})).hideHiddenFiles, isFalse);
+    });
   });
 
   group('错误文案', () {

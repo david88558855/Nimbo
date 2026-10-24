@@ -4,7 +4,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
-import '../core/version.dart';
 import '../drivers/errors.dart';
 import '../state/app_state.dart';
 import '../ui/kit.dart';
@@ -166,14 +165,6 @@ class _SettingsPageState extends State<SettingsPage> {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Text('每个任务独占一条连接；FTP 建议 1–2',
-                        style: TextStyle(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w600,
-                            color: NimboColors.ink4)),
-                  ),
                 ],
               ),
               const SizedBox(height: 10),
@@ -307,41 +298,10 @@ class _SettingsPageState extends State<SettingsPage> {
                   value: s.closeToTray,
                   onChanged: (v) => state.updateSettings((x) => x.closeToTray = v),
                 ),
-                const Divider(height: 18, color: Color(0xFFF0F4F9)),
-                _row('单实例', '重复启动只唤起已有窗口，不会出现第二个进程'),
-                _row('托盘', '单击无响应；双击或右键菜单「显示主窗口」唤回；右键可退出'),
               ],
             ),
           ),
         ],
-        const SizedBox(height: 10),
-        SectionCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _Label('安全'),
-              const SizedBox(height: 10),
-              _row('凭据存储', '系统安全存储（Windows Credential Manager / Android Keystore）'),
-              _row('便携备份', 'Windows 额外写 userdata/credentials.dat（可逆混淆，不是加密）'),
-              _row('代理', '按挂载一对一配置，无全局代理，不读系统代理'),
-              _row('明文 FTP', '仅建议在可信内网使用'),
-            ],
-          ),
-        ),
-        const SizedBox(height: 10),
-        SectionCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _Label('关于'),
-              const SizedBox(height: 10),
-              _row('版本', kAppVersionLabel),
-              _row('协议', 'FTP（含匿名）· SFTP · S3 兼容 · WebDAV · 本地与映射盘'),
-              _row('代理', 'HTTP CONNECT / SOCKS5，五个协议全部接入（含 SFTP）'),
-              _row('构建', 'GitHub Actions 云端编译，无本地构建产物'),
-            ],
-          ),
-        ),
       ],
     );
   }

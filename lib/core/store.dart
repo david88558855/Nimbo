@@ -56,7 +56,10 @@ class StoredSecret {
 }
 
 class AppSettings {
-  bool hideHiddenFiles = false;
+  /// 是否隐藏以 `.` 开头的文件/目录。**默认开启**：Linux 风格的 dotfile、
+  /// 各类同步工具的临时目录（`.git`、`.DS_Store`、`.thumbnails`）平时不需要看到，
+  /// 需要时在设置里关掉即可。
+  bool hideHiddenFiles = true;
   bool confirmDelete = true;
 
   /// 关窗行为：true = 收进托盘（默认），false = 直接退出。
@@ -94,7 +97,8 @@ class AppSettings {
 
   void load(Map<String, dynamic>? j) {
     if (j == null) return;
-    hideHiddenFiles = j['hideHiddenFiles'] == true;
+    // 缺省 true：老配置里没有这个键时按「隐藏」处理；显式写 false 才展开。
+    hideHiddenFiles = j['hideHiddenFiles'] != false;
     confirmDelete = j['confirmDelete'] != false;
     closeToTray = j['closeToTray'] != false;
     final c = (j['maxConcurrent'] as num?)?.toInt();
