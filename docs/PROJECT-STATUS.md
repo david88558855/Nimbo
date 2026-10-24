@@ -1041,9 +1041,12 @@ OpenList 的做法是真正的虚拟文件系统（一个根下挂多个存储�
 | 2026-10-24 13:25 | `5ecaf78` | ✅（含单测 41 项） | ✅ | ✅ | 删除「数据」卡片；下载目录默认值按平台（Android 公共 Download） |
 | 2026-10-24 13:34 | `208b4c1` | ✅（含单测 41 项） | ✅ | ✅ | 安卓挂载弹窗两处布局修正（代理行溢出、底部按钮居中） |
 | 2026-10-24 13:44 | `ce83605` | — | — | — | 文档：构建记录补到 208b4c1 |
-| 2026-10-24 13:50 | `feaf088` | ✅（含单测 41 项） | ✅ | ✅ | **当前最终状态**：Windows 端隐藏侧栏挂载切换器（平板保留） |
+| 2026-10-24 13:50 | `feaf088` | ✅（含单测 41 项） | ✅ | ✅ | Windows 端隐藏侧栏挂载切换器（平板保留） |
+| 2026-10-24 14:15 | `7787eee` | ✅（含单测 41 项） | ✅ | ✅ | Windows 下载目录跟随系统；多挂载常驻会话；复制/移动（新增 `pick_destination.dart`） |
+| 2026-10-24 14:22 | `6d9f3ff` | ✅（含单测 41 项） | ✅ | ✅ | 修 `'$base\Nimbo'` 丢反斜杠（analyze 报 unnecessary_string_escapes） |
+| 2026-10-24 14:33 | `6bdec0c` | ✅（含单测 41 项） | ✅ | ✅ | **当前最终状态**：去掉插值多余花括号，analyze 回到 17 条既有 info |
 
-- 最近一次成功：commit `feaf088`（analyze + flutter test 41 项 + android-arm64 + windows-x64 全绿）
+- 最近一次成功：commit `6bdec0c`（analyze 17 条既有 info + flutter test 41 项 + android-arm64 + windows-x64 全绿）
 - `flutter analyze` 现有 17 条 info（tray_manager legacy API 的 deprecated 提示为主），无 warning/error
 - 门禁现在是两条：`flutter analyze`（约 1.5 min）与 `flutter test`（纯逻辑单测，约 1 min）
 - 产物：`windows-x64-portable.zip` 12.53 MB（内含 `Nimbo.exe`）、`app-release.apk` 20.5 MB（arm64 release）
