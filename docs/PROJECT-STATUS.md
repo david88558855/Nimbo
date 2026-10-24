@@ -161,7 +161,8 @@ downloadTo / uploadFile / mkdir / removeEntry / move / probe`，错误统一抛 
   面包屑固定为「全部挂载 / 挂载名 / …」，第一段可随时退回。启动与删除挂载后都停在这里。
 - 移动：底部四 Tab；文件页头部按钮按宽度收敛（窄屏只留「上传 / 新建」）
 - 挂载页：卡片列表、移除确认、只读与代理状态展示
-- 添加挂载弹窗：协议选择、动态字段（S3 多出 Bucket/Region/路径风格）、**独立代理区（标注「仅对本挂载生效」）**、连接测试
+- 添加挂载弹窗：协议选择、动态字段（S3 多出 Bucket/Region/路径风格）、**独立代理区（标注「仅对本挂载生效」）**、连接测试；
+  **S3 / WebDAV 不提供独立端口框**，端口写在地址里（见 2.11）
 - 传输页：进行中/已结束分组，逐任务暂停/继续/取消，总速度汇总
 
 ### 2.7 P2 体验补齐
@@ -225,6 +226,38 @@ Android 上整体偏小（设计稿按桌面 1:1 排：正文 10.5–12.5、说�
 验收口径：Android 上同屏信息量略降（因为字更大），但不能出现文字被裁、按钮出界、
 列表行错位；系统字号调到 1.3 时应用不再叠加放大（沿用系统），调到 0.85 时仍保持 1.2 的下限。
 
+### 2.11 连接配置：端口归入地址（S3 / WebDAV）
+
+S3 与 WebDAV 都跑在 HTTP 上，端口本来就是 URL 的一部分。原来的表单对这两个协议也给了一个
+独立的「端口」框，结果会出现两种坏配置：地址里写了 `:8443` 而端口框是 443（谁生效说不清），
+或者地址里没写端口、端口只存在 `mount.port` 里（换客户端/换实现就丢）。
+
+**界面变更（`pages/add_mount_page.dart`）**
+| 位置 | 变更 |
+|---|---|
+| 协议切换 | S3 / WebDAV 时**隐藏端口输入框**，并把残留的端口值清空（切回 FTP/SFTP 时重新填默认端口，不会把上一个协议的值带过去） |
+| 地址输入框 | 提示改成带端口的示例：S3 `https://s3.example.com:9000`、WebDAV `https://dav.example.com:8443/dav` |
+| 解析预览 | 地址下方新增强制实时预览：`将连接 https://dav.example.com:8443 · 基础路径 /dav · 端口 8443（地址中指定）`；地址不合法时直接红字提示原因 |
+| 协议说明 | 两个协议的 hint 不再写「· 443」，避免暗示存在端口框 |
+| 编辑老配置 | 打开编辑时，若老配置把端口存在 `mount.port` 且地址里没有端口，**自动折进地址**（`https://host:8443/dav`），保存后不丢端口 |
+| FTP / SFTP | 端口输入框、默认值与行为**完全不变** |
+
+**解析逻辑变更（`core/endpoint.dart` 新增，两个驱动共用）**
+- `parseEndpoint(raw, {defaultScheme: 'https', fallbackPort: 0})` 统一解析「协议 / 主机 / 端口 / 基础路径」：
+  没写协议按 `https` 补；端口取地址里的显式端口；地址里没写时用 `fallbackPort`（老配置兜底），再退回协议默认（https 443 / http 80）。
+- `S3Driver.connect()`：原来自己 `Uri.parse` 一遍，现在用 `parseEndpoint`（端口只来自地址）。
+- `WebDavDriver.connect()`：同样改用 `parseEndpoint`，`_base` 直接取 `endpoint.url`（保留基础路径 + 端口）；
+  `mount.port` 只在老配置地址里没写端口时作为兜底。
+- 一律只接受 `http://` / `https://`，其它 scheme、空主机、端口越界都会抛 `FormatException`（带可读文案）。
+
+**校验规则变更**
+- 新增 `_validationError()`，**「测试连接」与「保存」共用同一套规则**（解决「测试通过、保存报错」的不一致）：
+  - S3 / WebDAV：地址必须能被 `parseEndpoint` 解析；不合法时提示「端口请写在地址里，例如 https://dav.example.com:8443」；
+  - FTP / SFTP：端口留空 = 用默认端口；填了就必须是 1–65535 的整数，否则直接拦下（原来非法值会被静默换成默认端口，掩盖输入错误）；
+  - 本地：仍然只校验目录路径。
+- `Mount.port` 对 S3 / WebDAV 固定保存为 0，不再残留历史端口值；`Mount.subtitle` 在 `port == 0` 时只显示主机，
+  不再出现 `dav.example.com:0`。
+
 ---
 
 ## 3. 文件地图
@@ -238,6 +271,7 @@ lib/
     format.dart                路径拼接与规范化、字节/速度/时间格式化、文件类型→图标与配色
     store.dart                 AppPaths（便携 userdata）、Prefs、SecureStore（系统凭据 + Windows 便携双写）
     transfer_store.dart        传输记录持久化（userdata/transfers.json，保留 60 条）
+    endpoint.dart              S3 / WebDAV 地址解析（协议 / 主机 / 端口 / 基础路径），表单与驱动共用
     multipart_store.dart       S3 分片上传状态（userdata/multipart.json，含 uploadId 与分片 ETag）
     upload_checkpoint.dart     WebDAV 上传断点（userdata/uploads.json，大小 + mtime + offset）
     json_store.dart            小 JSON 状态文件的串行化读-改-写 + 原子落盘（上面两个共用）
@@ -377,6 +411,13 @@ WebDAV 没有标准追加写，也不能保证中断回滚。直接 PUT 正式�
 层级关系不变，且尊重系统的辅助功能设置）；② 用 `uiSize()` 把固定高度/宽度/图标同步放大。
 代价：所有新增的固定尺寸都必须走 `uiSize()`，写死的 `height: 30` 会在移动端裁字。
 
+**ADR-19 S3 / WebDAV 的端口归入地址，不再单列**
+这两个协议都基于 HTTP，端口属于 URL。单列端口会制造两个真相来源（地址里的端口 vs 端口框），
+并且让 `mount.port` 变成一半协议用、一半协议不用的模糊字段。所以：
+表单不再给端口框、`mount.port` 存 0、解析统一走 `parseEndpoint()`，驱动与表单共用同一套规则。
+老配置的兼容只在「编辑」时做一次折算（把 `mount.port` 折进地址），运行期不改用户数据——
+WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底。
+
 ---
 
 ## 5. 注意事项与已知坑（必读）
@@ -475,7 +516,12 @@ WebDAV 没有标准追加写，也不能保证中断回滚。直接 PUT 正式�
     同理：新增 `Row` 里的长文本要放进 `Expanded`/`Flexible`，否则窄屏 + 放大字号必溢出。
 34. **不要用 `const` 包裹含 `uiSize()` 的控件。** `uiSize()` 依赖
     `defaultTargetPlatform`，不是常量，`const` 构造会直接编译失败。
-35. **WebDAV 中断不再删临时文件。** 以前失败就 `DELETE *.nimbo-part`，现在保留它作为
+35. **S3 / WebDAV 不要再加独立端口框。** 端口写在地址里，解析统一走
+    `core/endpoint.dart` 的 `parseEndpoint()`；驱动里不要另写一套 `Uri.parse`，
+    否则表单预览与实际连接会出现「看着是 8443、连的是 443」这种不一致。
+36. **`mount.port` 对 S3 / WebDAV 恒为 0。** 显示层要判 `port > 0` 再拼（否则出现
+    `dav.example.com:0`）；新增用到端口的逻辑，先看 `protocol.portInHost`。
+37. **WebDAV 中断不再删临时文件。** 以前失败就 `DELETE *.nimbo-part`，现在保留它作为
     续传载体；代价是远端会留一个 `*.nimbo-part`，下次同名上传会续传/覆盖。
     取消任务不会主动清理远端临时文件（与 S3 分片的处理一致）。
 
@@ -541,6 +587,11 @@ WebDAV 没有标准追加写，也不能保证中断回滚。直接 PUT 正式�
 | **直接退出** | 关掉「关闭窗口时收进托盘」→ 点 × | 进程退出；托盘图标消失 |
 | **限速** | 设置里下载限速 512 KB/s → 下一个大文件 | 速度稳定在 500 KB/s 上下；改成 0 后恢复满速 |
 | **SFTP 容量** | 打开 SFTP 挂载 | 标题出现「剩余 xx GB」；服务器不支持 statvfs 时不显示该项 |
+| **S3 端口在地址里** | 添加 S3，Endpoint 填 `https://minio.local:9000` | 没有端口框；预览显示「端口 9000（地址中指定）」；能列目录 |
+| **WebDAV 端口在地址里** | 添加 WebDAV，地址填 `https://dav.example.com:8443/dav` | 预览显示端口 8443 与基础路径 `/dav`；能列目录 |
+| **非法地址校验** | 地址填 `ftp://host` 或 `https://`，点「测试连接」与「保存」 | 两处给出同一条可读错误（只支持 http/https / 缺主机名），不会保存 |
+| **FTP/SFTP 端口框** | 添加 FTP，端口填 `abc` / `99999` | 提示「1–65535」；改成空则用 21/22，正常保存 |
+| **编辑老配置不丢端口** | 用旧版本保存过一个 `host=example.com / port=8443` 的 WebDAV 挂载，再打开编辑 | 地址自动变成 `https://example.com:8443`，保存后仍能连 |
 | **挂载测试连接** | 挂载页对某个挂载点「测试连接」 | 成功显示「根目录 N 项」；失败显示带建议的原因，且不影响已保存配置 |
 | **编辑挂载** | 挂载页「编辑」→ 只改显示名 → 保存 | 名称立即变；密码不用重输；正在浏览该挂载时自动重连 |
 | **WebDAV 原子上传** | 传大文件到 WebDAV，传一半暂停 | 正式文件不存在（或仍是旧版本）；目录里最多留一个 `*.nimbo-part` |

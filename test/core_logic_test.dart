@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:nimbo/core/endpoint.dart';
 import 'package:nimbo/core/format.dart';
 import 'package:nimbo/core/limiter.dart';
 import 'package:nimbo/core/multipart_store.dart';
@@ -39,6 +40,60 @@ void main() {
     test('sanitizeName 替换 Windows 非法字符', () {
       expect(sanitizeName('a/b\\c:d*e?f"g<h>i|j'), 'a_b_c_d_e_f_g_h_i_j');
       expect(sanitizeName('   '), 'unnamed');
+    });
+  });
+
+  group('服务器地址解析（S3 / WebDAV）', () {
+    test('没写协议时按 https 补，端口取默认', () {
+      final ep = parseEndpoint('dav.example.com');
+      expect(ep.scheme, 'https');
+      expect(ep.host, 'dav.example.com');
+      expect(ep.port, 443);
+      expect(ep.explicitPort, isFalse);
+      expect(ep.url, 'https://dav.example.com');
+    });
+
+    test('http 默认 80', () {
+      final ep = parseEndpoint('http://dav.example.com');
+      expect(ep.port, 80);
+      expect(ep.url, 'http://dav.example.com');
+    });
+
+    test('地址里写端口：以地址为准并保留基础路径', () {
+      final ep = parseEndpoint('https://dav.example.com:8443/dav/');
+      expect(ep.host, 'dav.example.com');
+      expect(ep.port, 8443);
+      expect(ep.explicitPort, isTrue);
+      expect(ep.basePath, '/dav');
+      expect(ep.url, 'https://dav.example.com:8443/dav');
+    });
+
+    test('无协议但写了端口', () {
+      final ep = parseEndpoint('s3.example.com:9000');
+      expect(ep.scheme, 'https');
+      expect(ep.host, 's3.example.com');
+      expect(ep.port, 9000);
+      expect(ep.explicitPort, isTrue);
+    });
+
+    test('老配置的独立端口作为兜底', () {
+      final ep = parseEndpoint('https://dav.example.com', fallbackPort: 8443);
+      expect(ep.port, 8443);
+      expect(ep.explicitPort, isTrue);
+      expect(ep.url, 'https://dav.example.com:8443');
+    });
+
+    test('地址里的端口优先于兜底端口', () {
+      final ep = parseEndpoint('https://dav.example.com:9443', fallbackPort: 8443);
+      expect(ep.port, 9443);
+    });
+
+    test('非法输入抛 FormatException', () {
+      expect(() => parseEndpoint(''), throwsFormatException);
+      expect(() => parseEndpoint('https://'), throwsFormatException);
+      expect(() => parseEndpoint('ftp://host'), throwsFormatException);
+      expect(() => parseEndpoint('https://host:0'), throwsFormatException);
+      expect(() => parseEndpoint('https://host:99999'), throwsFormatException);
     });
   });
 

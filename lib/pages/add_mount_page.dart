@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
 import '../core/models.dart';
+import '../core/endpoint.dart';
 import '../drivers/errors.dart';
 import '../drivers/factory.dart';
 import '../state/app_state.dart';
@@ -53,8 +54,13 @@ class _AddMountDialogState extends State<AddMountDialog> {
     if (m == null) return;
     _protocol = m.protocol;
     _name.text = m.name;
-    _host.text = m.host;
-    _port.text = m.port == 0 ? '' : '${m.port}';
+    // 端口归入地址的协议（S3 / WebDAV）：老配置若把端口存在独立字段里，
+    // 这里折进地址，否则隐藏端口框后一保存就把端口丢了。
+    _host.text = m.protocol.portInHost
+        ? _hostWithPort(m.host, m.port)
+        : m.host;
+    // HTTP 系协议的端口已折进地址，端口框不再显示，也不留残留值。
+    _port.text = (m.port == 0 || m.protocol.portInHost) ? '' : '${m.port}';
     _user.text = m.username;
     _rootPath.text = m.rootPath.isEmpty ? '/' : m.rootPath;
     _bucket.text = m.bucket;
@@ -94,8 +100,14 @@ class _AddMountDialogState extends State<AddMountDialog> {
     setState(() {
       _protocol = p;
       _testResult = null;
-      if (p != MountProtocol.local) {
+      if (p.portInHost) {
+        // 端口写在地址里，独立端口框不显示 —— 顺手清掉残留值，
+        // 否则切回 FTP/SFTP 时会把上一个协议的端口带过去。
+        _port.clear();
+      } else if (p != MountProtocol.local) {
         _port.text = '${p.defaultPort}';
+      } else {
+        _port.clear();
       }
       if (p == MountProtocol.local && _name.text == '新挂载') {
         _name.text = '本地目录';
@@ -113,7 +125,11 @@ class _AddMountDialogState extends State<AddMountDialog> {
         name: _name.text.trim().isEmpty ? _protocol.label : _name.text.trim(),
         protocol: _protocol,
         host: _host.text.trim(),
-        port: int.tryParse(_port.text.trim()) ?? _protocol.defaultPort,
+        // S3 / WebDAV 的端口属于地址，mount.port 固定存 0（不落残留字段）；
+        // FTP / SFTP 仍用独立端口框，留空回落到协议默认端口。
+        port: _protocol.portInHost
+            ? 0
+            : (int.tryParse(_port.text.trim()) ?? _protocol.defaultPort),
         username: _user.text.trim(),
         rootPath: _rootPath.text.trim().isEmpty ? '/' : _rootPath.text.trim(),
         bucket: _bucket.text.trim(),
@@ -132,12 +148,20 @@ class _AddMountDialogState extends State<AddMountDialog> {
       );
 
   Future<void> _test() async {
+    final mount = _buildMount();
+    final invalid = _validationError(mount);
+    if (invalid != null) {
+      setState(() {
+        _testOk = false;
+        _testResult = invalid;
+      });
+      return;
+    }
     setState(() {
       _testing = true;
       _testResult = null;
     });
     try {
-      final mount = _buildMount();
       // 编辑模式下密码可能留空：此时用已保存的凭据测，而不是拿空密码去撞。
       final count = _isEdit && _password.text.isEmpty
           ? await widget.state.testSavedMount(mount)
@@ -160,19 +184,47 @@ class _AddMountDialogState extends State<AddMountDialog> {
     }
   }
 
+  /// 「测试连接」与「保存」共用同一套校验。
+  ///
+  /// 分开写会出现「测试通过、保存报错」这种前后不一致——端口校验尤其容易踩，
+  /// 所以错误信息统一从这里返回，界面只负责展示。
+  String? _validationError(Mount mount) {
+    if (mount.protocol == MountProtocol.local) {
+      return mount.rootPath.trim().isEmpty ? '请填写本地目录路径' : null;
+    }
+    if (mount.host.isEmpty) {
+      return switch (mount.protocol) {
+        MountProtocol.s3 => '请填写 Endpoint，例如 https://s3.example.com:9000',
+        MountProtocol.webdav => '请填写服务器地址，例如 https://dav.example.com:8443/dav',
+        _ => '请填写主机地址，例如 192.168.1.20',
+      };
+    }
+    if (mount.protocol.portInHost) {
+      // 端口写在地址里：用驱动同一套解析规则验一遍，避免保存成功、连的时候才报错。
+      try {
+        parseEndpoint(mount.host);
+      } on FormatException catch (e) {
+        return '${e.message}。端口请写在地址里，例如 https://dav.example.com:8443';
+      }
+      return null;
+    }
+    // FTP / SFTP：端口仍是独立输入框，留空代表用协议默认端口。
+    final raw = _port.text.trim();
+    if (raw.isEmpty) return null;
+    final port = int.tryParse(raw);
+    if (port == null || port < 1 || port > 65535) {
+      return '端口必须是 1–65535 之间的数字（留空则用默认 ${mount.protocol.defaultPort}）';
+    }
+    return null;
+  }
+
   Future<void> _save() async {
     final mount = _buildMount();
-    if (mount.protocol != MountProtocol.local && mount.host.isEmpty) {
+    final invalid = _validationError(mount);
+    if (invalid != null) {
       setState(() {
         _testOk = false;
-        _testResult = '请填写主机地址或 Endpoint';
-      });
-      return;
-    }
-    if (mount.protocol == MountProtocol.local && mount.rootPath.isEmpty) {
-      setState(() {
-        _testOk = false;
-        _testResult = '请填写本地目录路径';
+        _testResult = invalid;
       });
       return;
     }
@@ -374,6 +426,58 @@ class _AddMountDialogState extends State<AddMountDialog> {
     );
   }
 
+  /// 把老配置里独立保存的端口折进地址（只在编辑 S3 / WebDAV 时用）。
+  ///
+  /// 历史版本这两个协议也有独立端口框，地址里可能没写端口。隐藏端口框后如果不折进去，
+  /// 保存一次就把端口丢了 —— 表现为「编辑了一下名字，结果连不上了」。
+  static String _hostWithPort(String host, int port) {
+    final h = host.trim();
+    if (port <= 0 || h.isEmpty) return host;
+    try {
+      final ep = parseEndpoint(h);
+      if (ep.explicitPort) return h; // 地址里已经写了端口，以地址为准
+      return '${ep.origin}:$port${ep.basePath}';
+    } on FormatException {
+      // 地址本身不合法：保持原样，让保存时的校验给出明确提示。
+      return host;
+    }
+  }
+
+  /// HTTP 系协议：把「地址 → 实际连接点」实时解析出来展示。
+  Widget _endpointPreview() {
+    final raw = _host.text.trim();
+    if (raw.isEmpty) return const SizedBox.shrink();
+    var ok = true;
+    String text;
+    try {
+      final ep = parseEndpoint(raw);
+      text = '将连接 ${ep.summary} · 端口 ${ep.port}'
+          '${ep.explicitPort ? '（地址中指定）' : '（默认）'}';
+    } on FormatException catch (e) {
+      ok = false;
+      text = e.message;
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(ok ? Icons.link_rounded : Icons.error_outline_rounded,
+              size: 12, color: ok ? NimboColors.ink4 : NimboColors.dangerInk),
+          const SizedBox(width: 5),
+          Expanded(
+            child: Text(text,
+                style: TextStyle(
+                    fontSize: 9.5,
+                    height: 1.5,
+                    fontWeight: FontWeight.w600,
+                    color: ok ? NimboColors.ink3 : NimboColors.dangerInk)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _fields() {
     if (_protocol == MountProtocol.local) {
       return Column(
@@ -393,15 +497,28 @@ class _AddMountDialogState extends State<AddMountDialog> {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(flex: 3, child: _field('显示名称', _name)),
-            const SizedBox(width: 10),
-            Expanded(flex: 2, child: _field('端口', _port, keyboard: TextInputType.number)),
+            Expanded(
+                flex: _protocol.portInHost ? 1 : 3,
+                child: _field('显示名称', _name)),
+            // S3 / WebDAV 的端口属于地址，不再给独立端口框（避免与地址里的端口打架）。
+            if (!_protocol.portInHost) ...[
+              const SizedBox(width: 10),
+              Expanded(flex: 2, child: _field('端口', _port, keyboard: TextInputType.number)),
+            ],
           ],
         ),
         _field(_protocol == MountProtocol.s3 ? 'Endpoint' : '主机地址', _host,
             hint: _protocol == MountProtocol.s3
-                ? 's3.example.com 或 oss-cn-hangzhou.aliyuncs.com'
-                : (_protocol == MountProtocol.webdav ? 'https://dav.example.com' : '192.168.1.20')),
+                ? 'https://s3.example.com:9000 或 oss-cn-hangzhou.aliyuncs.com'
+                : (_protocol == MountProtocol.webdav
+                    ? 'https://dav.example.com:8443/dav'
+                    : '192.168.1.20')),
+        // 端口藏进地址后，这里是用户确认「端口有没有被认出来」的唯一入口。
+        if (_protocol.portInHost)
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: _host,
+            builder: (_, __, ___) => _endpointPreview(),
+          ),
         if (_protocol == MountProtocol.s3) ...[
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,

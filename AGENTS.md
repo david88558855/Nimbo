@@ -47,6 +47,9 @@ gh run view --job $JOB --log-failed | sed -e 's/\x1b\[[0-9;]*m//g' | grep -E "er
 - `file_picker` 锁 8.x、`desktop_drop` 锁 0.8.x，两者互相牵制（`cross_file` 版本冲突），
   升级要同批改。
 - 每个传输任务独占一条连接；浏览会话与传输队列是两套连接，别合并。
+- **S3 / WebDAV 的端口属于地址**：表单不给端口框，`mount.port` 存 0，解析一律走
+  `core/endpoint.dart` 的 `parseEndpoint()`（驱动与表单共用）。别再给这两个协议加端口输入框，
+  也别在驱动里另写 `Uri.parse`。
 - **WebDAV 自定义方法必须用 `_dio.request(url, options: Options(method: ...))`**，
   不要用 `_dio.fetch(RequestOptions(...))`——后者不合并 `BaseOptions.headers`，
   `Authorization` 会丢，表现为全站 401。

@@ -7,6 +7,7 @@ import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:xml/xml.dart';
 
+import '../core/endpoint.dart';
 import '../core/format.dart';
 import '../core/limiter.dart';
 import '../core/models.dart';
@@ -62,13 +63,17 @@ class S3Driver extends StorageDriver {
 
   @override
   Future<void> connect() async {
-    var host = mount.host.trim();
-    if (host.isEmpty) throw DriverException('请填写 Endpoint', kind: DriverErrorKind.unknown);
-    if (!host.contains('://')) host = 'https://$host';
-    final uri = Uri.parse(host);
-    _scheme = uri.scheme;
-    _host = uri.host;
-    _port = uri.hasPort ? uri.port : (uri.scheme == 'https' ? 443 : 80);
+    // 端口属于 Endpoint 地址的一部分（表单不再单独给端口框），统一由 parseEndpoint 解析。
+    final HostEndpoint endpoint;
+    try {
+      endpoint = parseEndpoint(mount.host);
+    } on FormatException catch (e) {
+      throw DriverException('Endpoint 格式不正确：${e.message}',
+          kind: DriverErrorKind.unknown);
+    }
+    _scheme = endpoint.scheme;
+    _host = endpoint.host;
+    _port = endpoint.port;
     _dio = Dio(BaseOptions(
       connectTimeout: const Duration(seconds: 20),
       receiveTimeout: const Duration(seconds: 120),

@@ -16,8 +16,9 @@ extension MountProtocolX on MountProtocol {
   String get hint => switch (this) {
         MountProtocol.ftp => '明文 FTP · 21',
         MountProtocol.sftp => 'SSH2 · 22',
-        MountProtocol.s3 => 'S3 兼容 · 443',
-        MountProtocol.webdav => 'HTTP / HTTPS · 443',
+        // 端口写在地址里，别在协议说明里暗示有独立端口框。
+        MountProtocol.s3 => 'S3 兼容 · HTTPS',
+        MountProtocol.webdav => 'HTTP / HTTPS',
         MountProtocol.local => '本机 / 映射盘',
       };
 
@@ -30,6 +31,13 @@ extension MountProtocolX on MountProtocol {
       };
 
   bool get hasNetwork => this != MountProtocol.local;
+
+  /// 端口是否属于地址的一部分（HTTP 系协议）。
+  ///
+  /// S3 与 WebDAV 都跑在 HTTP 上，端口本来就写进 URL（`https://host:8443`）。
+  /// 表单对这两个协议**不再提供独立端口输入框**，`Mount.port` 保存为 0，
+  /// 由 `core/endpoint.dart` 的 `parseEndpoint()` 从地址里解析。
+  bool get portInHost => this == MountProtocol.s3 || this == MountProtocol.webdav;
 
   Color get color => switch (this) {
         MountProtocol.ftp => const Color(0xFFA9700A),
@@ -163,7 +171,8 @@ class Mount {
       case MountProtocol.s3:
         return '$host/${bucket.isEmpty ? '—' : bucket}';
       default:
-        return host.isEmpty ? '未配置' : '$host:$port';
+        // 端口归入地址后 port 可能是 0，别显示成 `dav.example.com:0`。
+        return host.isEmpty ? '未配置' : (port > 0 ? '$host:$port' : host);
     }
   }
 

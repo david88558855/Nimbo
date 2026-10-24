@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:xml/xml.dart';
 
+import '../core/endpoint.dart';
 import '../core/format.dart';
 import '../core/limiter.dart';
 import '../core/models.dart';
@@ -78,24 +79,18 @@ class WebDavDriver extends StorageDriver {
 
   @override
   Future<void> connect() async {
-    var host = mount.host.trim();
-    if (host.isEmpty) throw DriverException('请填写服务器地址', kind: DriverErrorKind.unknown);
-    if (!host.startsWith('http://') && !host.startsWith('https://')) {
-      host = 'https://$host';
+    // 端口属于地址的一部分（表单不再单独给端口框）。mount.port 只在「老配置把端口
+    // 存在独立字段里」时作为兜底：地址里写了端口就一律以地址为准。
+    final HostEndpoint endpoint;
+    try {
+      endpoint = parseEndpoint(mount.host, fallbackPort: mount.port);
+    } on FormatException catch (e) {
+      throw DriverException('服务器地址格式不正确：${e.message}',
+          kind: DriverErrorKind.unknown);
     }
-    final baseUri = Uri.parse(host);
-    final port = mount.port;
-    final needPort = port != 0 &&
-        port != 80 &&
-        port != 443 &&
-        !baseUri.hasPort;
-    final authority = needPort
-        ? '${baseUri.scheme}://${baseUri.host}:$port'
-        : '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}';
-    // 服务器地址里带路径（https://host/dav）时不能丢：丢了会连到服务器根，
+    // 地址里带路径（https://host/dav）时不能丢：丢了会连到服务器根，
     // 表现为「同一个地址别的客户端能进、本应用 404」。
-    final basePath = baseUri.path.replaceAll(RegExp(r'/+$'), '');
-    _base = '$authority$basePath';
+    _base = endpoint.url;
 
     final headers = <String, String>{'User-Agent': 'Nimbo/0.1'};
     if (mount.username.isNotEmpty) {
