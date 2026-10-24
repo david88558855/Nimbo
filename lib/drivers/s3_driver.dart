@@ -12,6 +12,7 @@ import '../core/format.dart';
 import '../core/limiter.dart';
 import '../core/models.dart';
 import '../core/multipart_store.dart';
+import 's3_path.dart';
 import 'net.dart';
 import 'storage_driver.dart';
 
@@ -28,6 +29,13 @@ class S3Driver extends StorageDriver {
   late final String _scheme;
   late final String _host;
   late final int _port;
+
+  /// Endpoint 里的路径前缀，例如 `https://demo.foxel.cc/s3` 的 `/s3`。
+  ///
+  /// 网关型 / 反代型 S3（自建 MinIO 挂子路径、演示环境等）全靠它区分「S3 接口」与
+  /// 「站点其它路由」：丢了前缀请求会落到站点根，返回的是反代/框架的 404（不是 S3 XML），
+  /// 表现为「地址明明对，却报对象或桶不存在」。
+  String _endpointPath = '';
 
   static const _emptyHash = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
 
@@ -74,6 +82,7 @@ class S3Driver extends StorageDriver {
     _scheme = endpoint.scheme;
     _host = endpoint.host;
     _port = endpoint.port;
+    _endpointPath = endpoint.basePath;
     _dio = Dio(BaseOptions(
       connectTimeout: const Duration(seconds: 20),
       receiveTimeout: const Duration(seconds: 120),
@@ -99,14 +108,13 @@ class S3Driver extends StorageDriver {
     return _port == defaultPort ? h : '$h:$_port';
   }
 
-  String _requestPath(String key, {bool dir = false}) {
-    final encodedKey = key.isEmpty ? '' : key.split('/').map(_uriEncode).join('/');
-    final withSlash =
-        dir && encodedKey.isNotEmpty && !encodedKey.endsWith('/') ? '$encodedKey/' : encodedKey;
-    final bucketPart = _pathStyle ? '/${_uriEncode(mount.bucket)}' : '';
-    if (withSlash.isEmpty) return bucketPart.isEmpty ? '/' : '$bucketPart/';
-    return '$bucketPart/$withSlash';
-  }
+  String _requestPath(String key, {bool dir = false}) => buildS3RequestPath(
+        endpointPath: _endpointPath,
+        pathStyle: _pathStyle,
+        bucket: mount.bucket,
+        key: key,
+        dir: dir,
+      );
 
   String _url(String requestPath, String canonicalQuery) {
     final host = _pathStyle ? _host : '${mount.bucket}.$_host';
@@ -116,25 +124,8 @@ class S3Driver extends StorageDriver {
         '${canonicalQuery.isEmpty ? '' : '?$canonicalQuery'}';
   }
 
-  static String _uriEncode(String input) {
-    final bytes = utf8.encode(input);
-    final sb = StringBuffer();
-    for (final b in bytes) {
-      final ok = (b >= 65 && b <= 90) ||
-          (b >= 97 && b <= 122) ||
-          (b >= 48 && b <= 57) ||
-          b == 0x2D ||
-          b == 0x2E ||
-          b == 0x5F ||
-          b == 0x7E;
-      if (ok) {
-        sb.writeCharCode(b);
-      } else {
-        sb.write('%${b.toRadixString(16).toUpperCase().padLeft(2, '0')}');
-      }
-    }
-    return sb.toString();
-  }
+  /// 编码规则统一在 [uriEncodeS3] 里（SigV4 对大小写与保留字符敏感）。
+  static String _uriEncode(String input) => uriEncodeS3(input);
 
   static String _hex(List<int> bytes) => bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
@@ -262,6 +253,15 @@ class S3Driver extends StorageDriver {
       case 403:
         throw DriverException('凭据被拒绝或签名不匹配（403$detail）', kind: DriverErrorKind.auth);
       case 404:
+        if (detail.isEmpty) {
+          // 不是 S3 的 XML 错误：多半是 Endpoint 少了路径前缀，或这个地址根本不是 S3 接口
+          // （例如 https://host/s3 被写成 https://host）。
+          throw DriverException(
+            'Endpoint 返回 404，但响应不是 S3 错误格式：'
+            '检查 Endpoint 是否漏了路径前缀（如 https://host/s3），或该地址未指向 S3 接口',
+            kind: DriverErrorKind.notFound,
+          );
+        }
         throw DriverException('对象或桶不存在（404$detail）', kind: DriverErrorKind.notFound);
       case 301:
         throw DriverException('区域不匹配（301），请检查 Region', kind: DriverErrorKind.network);

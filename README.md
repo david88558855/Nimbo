@@ -3,6 +3,7 @@
 多协议网盘客户端 · Windows x64 + Android arm64 · 纯 Dart 网络与存储实现。
 
 - 协议：FTP（含匿名）/ SFTP / S3 兼容 / WebDAV / 本地与映射盘
+- S3 支持 path-style / virtual-hosted，Endpoint 可带子路径（`https://host/s3`，网关型部署）
 - **接手必读：[`docs/PROJECT-STATUS.md`](docs/PROJECT-STATUS.md)**（当前进度、已验证范围、已知坑、待办与后续建议）
 - AI / 工程接手约束与常用命令：[`AGENTS.md`](AGENTS.md)
 - 视觉与交互：见 `design/index.html`（设计稿 v1.2，单一浅色主题）

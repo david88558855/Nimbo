@@ -47,6 +47,9 @@ gh run view --job $JOB --log-failed | sed -e 's/\x1b\[[0-9;]*m//g' | grep -E "er
 - `file_picker` 锁 8.x、`desktop_drop` 锁 0.8.x，两者互相牵制（`cross_file` 版本冲突），
   升级要同批改。
 - 每个传输任务独占一条连接；浏览会话与传输队列是两套连接，别合并。
+- **S3 的 Endpoint 可以带子路径**（`https://host/s3`）。前缀必须拼进请求路径与 SigV4 的
+  CanonicalRequest，但 `x-amz-copy-source` 只写 `/<bucket>/<key>`。路径拼装只走
+  `drivers/s3_path.dart`（有单测），别在驱动里手拼字符串。
 - **S3 / WebDAV 的端口属于地址**：表单不给端口框，`mount.port` 存 0，解析一律走
   `core/endpoint.dart` 的 `parseEndpoint()`（驱动与表单共用）。别再给这两个协议加端口输入框，
   也别在驱动里另写 `Uri.parse`。

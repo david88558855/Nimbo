@@ -338,3 +338,29 @@ GetBucketLocation    → 可选；403/501 直接忽略，不作为失败
 
 2. **是否支持"浏览多个 bucket"**
    建议：不支持。一个挂载一个 bucket，是"网盘"的产品直觉（用户看到的是文件夹），也避开跨桶移动的语义坑。想要"桶列表"的用户，本质是在用管理控制台，不是网盘。
+
+## 4. Endpoint 带子路径（网关 / 反代把 S3 挂在 /s3 下）
+
+真实存在的一类部署：S3 接口不是站点根，而是挂在某个子路径上。
+
+```
+Client ──> https://demo.foxel.cc/s3/<bucket>/<key> ──> 站点其它路由（/、/api、/docs…）
+                        └── 只有这个前缀才会转发到 S3 后端
+```
+
+此时 **Endpoint 必须原样带上 `/s3`**，并且：
+
+| 环节 | 要求 |
+|---|---|
+| 请求路径 | `/s3/<bucket>/<key>`（path-style），或 `/s3/<key>`（virtual-hosted，host 里带桶名） |
+| SigV4 CanonicalRequest | 的 URI 必须是 `/s3/<bucket>/<key>`，**不能**是 `/<bucket>/<key>`（否则签名与路径不一致） |
+| `x-amz-copy-source` | 只写 `/<bucket>/<key>`，**不带** `/s3` 前缀（它是桶内语义，不是 URL 路径） |
+| 反向代理 | 若配置了 `proxy_pass .../`（剥离前缀），需要后端把前缀当作已知 base 处理，否则签名校验必然失败 |
+
+**曾经踩过的坑（2026-10-24）**：驱动解析 Endpoint 时只取了 scheme/host/port，把
+`basePath` 丢了，请求打到站点根，网关返回的是框架自己的 404（JSON/HTML，不是 S3 的
+`<Error><Code>`），界面显示成「对象或桶不存在（404）」，而地址、桶名、AK/SK 全是对的。
+排查手段：不带签名直接 `curl https://host/s3/bucket/` —— 如果返回 S3 XML 的
+`AccessDenied`（Missing Authorization），说明前缀对了；如果返回框架的 404 页面，说明
+前缀没进去。现在这两条都有防线：路径拼装收敛到 `lib/drivers/s3_path.dart`（带单测），
+且 404 响应不是 S3 XML 时错误文案会直接提示「Endpoint 可能漏了路径前缀」。

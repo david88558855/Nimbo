@@ -6,6 +6,7 @@ import 'package:nimbo/core/multipart_store.dart';
 import 'package:nimbo/core/models.dart';
 import 'package:nimbo/core/upload_checkpoint.dart';
 import 'package:nimbo/drivers/errors.dart';
+import 'package:nimbo/drivers/s3_path.dart';
 import 'package:nimbo/drivers/storage_driver.dart';
 
 /// 纯逻辑单测：不碰文件系统、不碰网络、不依赖平台插件，
@@ -171,6 +172,71 @@ void main() {
       final cp = UploadCheckpoint.fromJson({'length': 10});
       expect(cp, isNotNull);
       expect(cp!.offset, 0);
+    });
+  });
+
+  group('S3 请求路径（含 Endpoint 子路径）', () {
+    test('path-style + 子路径前缀：/s3/<bucket>/', () {
+      expect(
+        buildS3RequestPath(
+            endpointPath: '/s3', pathStyle: true, bucket: 'jsjej66', key: ''),
+        '/s3/jsjej66/',
+      );
+      expect(
+        buildS3RequestPath(
+            endpointPath: '/s3', pathStyle: true, bucket: 'jsjej66', key: 'a/b.txt'),
+        '/s3/jsjej66/a/b.txt',
+      );
+    });
+
+    test('目录语义补结尾斜杠', () {
+      expect(
+        buildS3RequestPath(
+            endpointPath: '/s3', pathStyle: true, bucket: 'b', key: 'folder', dir: true),
+        '/s3/b/folder/',
+      );
+    });
+
+    test('没有子路径时行为不变', () {
+      expect(
+        buildS3RequestPath(
+            endpointPath: '', pathStyle: true, bucket: 'b', key: 'x.txt'),
+        '/b/x.txt',
+      );
+      expect(
+        buildS3RequestPath(endpointPath: '', pathStyle: true, bucket: 'b', key: ''),
+        '/b/',
+      );
+    });
+
+    test('前缀规范：补前导斜杠、去重尾斜杠', () {
+      expect(
+        buildS3RequestPath(
+            endpointPath: 's3/', pathStyle: true, bucket: 'b', key: 'k'),
+        '/s3/b/k',
+      );
+    });
+
+    test('virtual-hosted 时桶名不进路径，但前缀仍保留', () {
+      expect(
+        buildS3RequestPath(
+            endpointPath: '/s3', pathStyle: false, bucket: 'b', key: 'k'),
+        '/s3/k',
+      );
+    });
+
+    test('key 的每一段单独编码，分隔符保留', () {
+      expect(
+        buildS3RequestPath(
+            endpointPath: '/s3', pathStyle: true, bucket: 'b', key: 'a b/中文.txt'),
+        '/s3/b/a%20b/%E4%B8%AD%E6%96%87.txt',
+      );
+    });
+
+    test('uriEncodeS3 保留 unreserved，转义其余', () {
+      expect(uriEncodeS3('aZ0-._~'), 'aZ0-._~');
+      expect(uriEncodeS3('a/b'), 'a%2Fb');
+      expect(uriEncodeS3('a+b'), 'a%2Bb');
     });
   });
 

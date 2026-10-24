@@ -205,6 +205,7 @@ downloadTo / uploadFile / mkdir / removeEntry / move / probe`，错误统一抛 
 | WebDAV 基础路径 | 服务器地址里带路径（`https://host/dav`）不再被丢弃；`sizeOf` 在 HEAD 405/无长度时回落 `PROPFIND Depth:0` |
 | S3 分片续传 | `uploadId` + 已完成分片的 ETag 落盘 `userdata/multipart.json`（按 `mountId|key`，校验文件大小与分片大小，7 天过期）；续传前先 `ListParts` 以服务端为准，只补缺失分片；完成后删除状态 |
 | S3 分片并发 | 3 路并行 PUT；进度 = 已完成分片字节 + 在传分片已发送字节 |
+| S3 Endpoint 子路径 | Endpoint 里的路径前缀（`https://host/s3`）会拼进请求路径与 SigV4 的 CanonicalRequest，`x-amz-copy-source` 仍只写 `/<bucket>/<key>`。路径拼装收敛到 `drivers/s3_path.dart`（纯函数 + 单测）；404 且响应不是 S3 XML 时，错误文案直接提示「可能漏了路径前缀」 |
 | 上传续传起点下放 | 新增 `StorageDriver.uploadResumeOffset(localFile, remotePath, hint)`：默认按远端 `sizeOf()` 复核（FTP/SFTP/本地），S3 覆写为看分片状态。队列层不再自己算 |
 | 统一错误文案 | `drivers/errors.dart` 的 `describeError()` 按 `DriverErrorKind` 追一句可执行建议（认证/路径/权限/网络/代理/不支持），传输卡片用 `shortError()` 截断 |
 | 未知大小进度 | `TransferTask.indicatorValue` 在 `total == 0` 时返回 null → 进度条画不确定态，百分比显示「—」 |
@@ -418,6 +419,12 @@ WebDAV 没有标准追加写，也不能保证中断回滚。直接 PUT 正式�
 老配置的兼容只在「编辑」时做一次折算（把 `mount.port` 折进地址），运行期不改用户数据——
 WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底。
 
+**ADR-20 S3 的 Endpoint 路径前缀必须参与请求路径与签名**
+`https://demo.foxel.cc/s3` 这类网关型部署，前缀不是装饰而是路由：丢了它请求会落到站点根，
+拿到的 404 是框架页面而非 S3 错误，极难从错误码反推。所以：① `parseEndpoint` 的 `basePath`
+一路传到驱动的 `_requestPath`；② 路径拼装抽成 `drivers/s3_path.dart` 的纯函数并单测
+（子路径 / path-style / 目录补斜杠 / 编码）；③ `x-amz-copy-source` 不带前缀——它是桶内语义。
+
 ---
 
 ## 5. 注意事项与已知坑（必读）
@@ -521,7 +528,10 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
     否则表单预览与实际连接会出现「看着是 8443、连的是 443」这种不一致。
 36. **`mount.port` 对 S3 / WebDAV 恒为 0。** 显示层要判 `port > 0` 再拼（否则出现
     `dav.example.com:0`）；新增用到端口的逻辑，先看 `protocol.portInHost`。
-37. **WebDAV 中断不再删临时文件。** 以前失败就 `DELETE *.nimbo-part`，现在保留它作为
+37. **S3 的 Endpoint 可能带子路径。** 网关型部署（`https://host/s3`）里前缀是路由的一部分，
+    必须拼进请求路径与 SigV4 的 CanonicalRequest；`x-amz-copy-source` 不能带它。
+    看到「404 但响应不是 S3 XML」时，第一嫌疑就是前缀丢了（坑已修，`s3_path.dart` 有单测兜住）。
+38. **WebDAV 中断不再删临时文件。** 以前失败就 `DELETE *.nimbo-part`，现在保留它作为
     续传载体；代价是远端会留一个 `*.nimbo-part`，下次同名上传会续传/覆盖。
     取消任务不会主动清理远端临时文件（与 S3 分片的处理一致）。
 
@@ -587,6 +597,7 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
 | **直接退出** | 关掉「关闭窗口时收进托盘」→ 点 × | 进程退出；托盘图标消失 |
 | **限速** | 设置里下载限速 512 KB/s → 下一个大文件 | 速度稳定在 500 KB/s 上下；改成 0 后恢复满速 |
 | **SFTP 容量** | 打开 SFTP 挂载 | 标题出现「剩余 xx GB」；服务器不支持 statvfs 时不显示该项 |
+| **S3 子路径 Endpoint** | Endpoint 填 `https://demo.foxel.cc/s3`、桶 `jsjej66`、path-style、AK/SK 正确 | 能列出桶内对象（请求路径为 `/s3/jsjej66/...`）；若仍 404，错误文案会提示「可能漏了路径前缀」 |
 | **S3 端口在地址里** | 添加 S3，Endpoint 填 `https://minio.local:9000` | 没有端口框；预览显示「端口 9000（地址中指定）」；能列目录 |
 | **WebDAV 端口在地址里** | 添加 WebDAV，地址填 `https://dav.example.com:8443/dav` | 预览显示端口 8443 与基础路径 `/dav`；能列目录 |
 | **非法地址校验** | 地址填 `ftp://host` 或 `https://`，点「测试连接」与「保存」 | 两处给出同一条可读错误（只支持 http/https / 缺主机名），不会保存 |
