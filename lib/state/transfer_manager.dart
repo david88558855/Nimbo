@@ -370,10 +370,19 @@ class TransferManager extends ChangeNotifier {
       }
     } catch (e) {
       if (tasks.contains(task)) {
-        task.status = TransferStatus.failed;
-        task.speed = 0;
-        task.error = shortError(e);
-        _markResumePoint(task);
+        // task.abort 说明是用户主动暂停：dio 会把「进度回调里抛的异常」包成
+        // DioException，到不了上面的 TransferAborted 分支，这里兜一层，
+        // 否则 WebDAV 上传 / S3 单次 PUT 的暂停会显示成「失败」。
+        if (task.abort) {
+          task.status = TransferStatus.paused;
+          task.speed = 0;
+          _markResumePoint(task);
+        } else {
+          task.status = TransferStatus.failed;
+          task.speed = 0;
+          task.error = shortError(e);
+          _markResumePoint(task);
+        }
       }
     } finally {
       task.abort = false;

@@ -20,6 +20,8 @@ gh workflow run build.yml --ref main
 gh run list --limit 3
 gh run view <run-id> --json jobs --jq '.jobs[] | "\(.name) => \(.conclusion)"'
 
+# analyze 之后还有一步 flutter test（纯逻辑单测）；它需要先装 gtk3/x11/xi，
+# 因为 cnativeapi 的 native assets 会在测试时构建。别删那个步骤。
 # 失败只抓失败步骤（CI 日志带 ANSI 色）
 JOB=$(gh run view <run-id> --json jobs --jq '.jobs[]|select(.name=="analyze")|.databaseId')
 gh run view --job $JOB --log-failed | sed -e 's/\x1b\[[0-9;]*m//g' | grep -E "error •|warning •"
@@ -32,7 +34,13 @@ gh run view --job $JOB --log-failed | sed -e 's/\x1b\[[0-9;]*m//g' | grep -E "er
 
 - `StorageDriver` 的 `downloadTo` / `uploadFile` 签名一变，**五个驱动都要跟着改**；
   新驱动必须在长循环里调用 `onProgress`，否则该协议的暂停/续传失效。
-- 续传起点一律"实测"：下载看本地文件长度，上传看远端 `sizeOf()`。
+- **新驱动的长循环里还要 `await TransferLimiter.instance.{upload|download}.take(chunk.length)`**，
+  否则该协议不受限速影响（限速是全局令牌桶，见 ADR-13）。整条流交给 dio 的场景用
+  `throttleStream()` 包一层。
+- 续传起点一律"实测"：下载看本地文件长度，上传由驱动实现
+  `uploadResumeOffset()`——默认按远端 `sizeOf()` 复核，S3 覆写成按分片状态算。
+- S3 分片状态在 `userdata/multipart.json`，续传前**必须**先 `ListParts` 以服务端为准；
+  失败不再 Abort（见 ADR-14）。
 - `file_picker` 锁 8.x、`desktop_drop` 锁 0.8.x，两者互相牵制（`cross_file` 版本冲突），
   升级要同批改。
 - 每个传输任务独占一条连接；浏览会话与传输队列是两套连接，别合并。
@@ -41,6 +49,8 @@ gh run view --job $JOB --log-failed | sed -e 's/\x1b\[[0-9;]*m//g' | grep -E "er
   `Authorization` 会丢，表现为全站 401。
 - 文件页有两种态：`AppState.browseAll`（全部挂载聚合根）与挂载内目录树。
   新增页面级交互时先想清楚在哪个态生效。
+- 传输记录恢复要给**挂载对象**（`restore(saved, mounts)`），不是 id 集合；编辑挂载后
+  调 `syncMount()`，否则恢复出来的任务会拿旧地址连。
 
 ## 平台相关（Windows）
 
@@ -48,8 +58,11 @@ gh run view --job $JOB --log-failed | sed -e 's/\x1b\[[0-9;]*m//g' | grep -E "er
   托盘（`desktop_shell.dart`）、单实例（`single_instance.dart`）、窗口管理。
 - **托盘双击**不能只靠兼容层的 `onTrayIconMouseDown` 时间差——`tray_manager 0.8` 的
   legacy 桥接会丢弃 `DoubleClicked`，必须同时监听底层 `TrayIconDoubleClickedEvent`。
+- 关窗行为由 `setPreventClose(true)` + `WindowListener.onWindowClose` 接管：
+  默认收进托盘，设置里可改成直接退出。
 - Windows 产物依赖 `cnativeapi.dll` / `window_manager_plugin.dll` 等，**必须整包分发**。
-- 便携数据全在 exe 同级 `userdata/`：`prefs.json`、`transfers.json`、`credentials.dat`。
+- 便携数据全在 exe 同级 `userdata/`：`prefs.json`、`transfers.json`、`multipart.json`、
+  `credentials.dat`。
   `credentials.dat` 是可逆混淆，不要对外描述成"加密"。
 
 ## 网络（本沙箱）

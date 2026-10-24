@@ -1,7 +1,7 @@
 # Nimbo 项目现状与交接说明
 
 > 写给下一位接手的人或 AI。目标：读完这一篇就能继续推进，不必回溯聊天记录。
-> 最后更新：2026-10-23 · P2 交付（断点续传 / 多选 / 目录传输 / 拖拽 / 预览）
+> 最后更新：2026-10-24 · P4 交付（限速 / 容量 / 挂载编辑 / WebDAV 原子落盘 / S3 分片续传）
 
 ---
 
@@ -14,7 +14,7 @@
 | **硬约束** | **禁止本地编译**。本机没有 Flutter SDK，所有编译、静态检查、依赖解析只在 GitHub Actions 里发生 |
 | 真相来源 | `lib/` + `pubspec.yaml` + `.github/workflows/build.yml`。`android/`、`windows/` **不入库**，每次构建由 CI 现生成 |
 | 设计稿 | `design/index.html`（单文件、真实 CSS 渲染、可离线打开，v1.2） |
-| 当前版本 | `pubspec.yaml` → `0.3.0+3`（P3 未升版本号，以 git 提交号为准，最新 `8b56751`） |
+| 当前版本 | `pubspec.yaml` → `0.4.0+4`；界面上的版本号统一取 `lib/core/version.dart` 的 `kAppVersion` |
 
 **工具链（CI 实测）**：Flutter 3.47.7 stable / Dart 3.13.5 / Java 17（temurin）/
 runner `ubuntu-latest` + `windows-latest`。`pubspec.yaml` 的 SDK 约束写的是 `>=3.3.0`，
@@ -81,12 +81,13 @@ git -c http.version=HTTP/1.1 ls-remote https://github.com/david88558855/Nimbo.gi
 | **P0 骨架** | 五个驱动能连、能列、能读写；双端外壳；云端构建跑通 | ✅ 完成 |
 | **P1 传输闭环** | 上传（file_picker）、传输队列、暂停/继续/取消/重试、速度与剩余时间、SFTP 走代理、S3 分片上传、SFTP 流式 | ✅ 完成（本轮） |
 | **P2 体验补齐** | 断点续传、预览、拖拽、多选批量、目录上传下载 | ✅ 完成 |
-| **P3 打磨** | 传输记录持久化 ✅、S3 目录分页删除 ✅、FTP 匿名 ✅、返回键逐级+双击退出 ✅、移动端长按多选 ✅、Windows 托盘/单实例 ✅、便携凭据 ✅；限速、S3 分片续传/并发、WebDAV 上传续传、临时名 rename ⬜ | 🟡 进行中 |
+| **P3 打磨** | 传输记录持久化、S3 目录分页删除、FTP 匿名、返回键逐级+双击退出、移动端长按多选、Windows 托盘/单实例、便携凭据、关闭到托盘 | ✅ 完成 |
+| **P4 可靠性** | 限速（上传/下载分开）、SFTP 容量、挂载测试与编辑、WebDAV 临时名 + MOVE、S3 分片续传 + 分片并发、统一错误文案、未知大小不确定进度、纯逻辑单测 | ✅ 完成 |
 
 **一句话现状**：五个协议都能真实读写，上传下载都能排队跑，代理对五个协议全部生效；
-大文件中断后能接着传（下载全协议，上传 FTP/SFTP/本地）；多选、目录上传下载、拖拽、预览、
-文件页聚合根、返回键逐级回退、传输记录持久化都已可用；
-剩余的是「托盘」「限速」「S3/WebDAV 上传续传」这类需要真机联调的高风险项。
+大文件中断后能接着传（下载全协议；上传 FTP/SFTP/本地按远端大小续传，S3 分片按分片表续传）；
+限速、托盘、关闭到托盘、单实例、便携凭据、挂载编辑与单挂载测试连接都已可用；
+剩下的是 WebDAV 上传续传（协议无追加语义）、音视频/PDF 预览、FTPS、本地磁盘容量这几项。
 
 ---
 
@@ -186,6 +187,26 @@ downloadTo / uploadFile / mkdir / removeEntry / move / probe`，错误统一抛 
 | Windows 托盘 | `lib/platform/desktop_shell.dart` + `assets/tray.ico`（脚本生成的 256px 圆角 N）。左键单击无反应、双击显示/还原/聚焦、右键菜单「显示主窗口 / 退出」 |
 | 单实例 | `lib/platform/single_instance.dart`：回环 47913 端口，第二个进程写入 `show` 后 `exit(0)`；不用锁文件，进程退出端口自然释放 |
 | 便携凭据 | Windows 双写 `userdata/credentials.dat`（固定密钥 XOR + base64），读取优先系统凭据库、失败回落便携文件；删挂载清两边。**这是可逆混淆，不是加密**，只解决「整个目录拷走密码还在」 |
+| 关闭到托盘 | `windowManager.setPreventClose(true)` + `WindowListener.onWindowClose`：按设置 `closeToTray` 决定 hide 还是退出（默认收进托盘）。不打开拦截时窗口控件会被销毁，托盘菜单点了也没反应 |
+
+### 2.9 P4 可靠性（本轮）
+
+| 能力 | 实现要点 |
+|---|---|
+| 限速 | `core/limiter.dart` 的 `TokenBucket`，上传与下载各一个桶，`TransferLimiter.instance` 全局共享；五个驱动的读写循环里 `await bucket.take(chunk.length)`；WebDAV 上传这类「整条 Stream 交给 dio」的场景用 `throttleStream()` 包一层。设置页按 KB/s 配，留空或 0 = 不限 |
+| SFTP 容量 | `SftpClient.statvfs('/')`（openssh 扩展）→ `blockSize × totalBlocks / freeBlocks`；服务器不支持扩展时返回 null，界面自动省略「剩余」 |
+| 容量展示 | `AppState.space` 在 `open()` 时读一次，文件页标题显示「N 项 · 大小 · 剩余」 |
+| 挂载测试连接 | 挂载页逐卡片「测试连接」，凭据取自已保存的安全存储（`testMountWithStoredPassword`），结果就地显示成功条目数或带建议的错误 |
+| 挂载编辑 | 复用 `AddMountDialog(existing:)`：字段预填、**密码留空表示不修改**、编辑时不允许换协议（凭据语义不同）；保存后若正在浏览该挂载会立刻重连 |
+| WebDAV 原子落盘 | 上传先写 `<name>.nimbo-part`，成功后 `MOVE` 成正式名；失败/中断尽力 `DELETE` 临时文件。正式路径上不会再出现「看起来完整其实缺尾部」的文件 |
+| WebDAV 基础路径 | 服务器地址里带路径（`https://host/dav`）不再被丢弃；`sizeOf` 在 HEAD 405/无长度时回落 `PROPFIND Depth:0` |
+| S3 分片续传 | `uploadId` + 已完成分片的 ETag 落盘 `userdata/multipart.json`（按 `mountId|key`，校验文件大小与分片大小，7 天过期）；续传前先 `ListParts` 以服务端为准，只补缺失分片；完成后删除状态 |
+| S3 分片并发 | 3 路并行 PUT；进度 = 已完成分片字节 + 在传分片已发送字节 |
+| 上传续传起点下放 | 新增 `StorageDriver.uploadResumeOffset(localFile, remotePath, hint)`：默认按远端 `sizeOf()` 复核（FTP/SFTP/本地），S3 覆写为看分片状态。队列层不再自己算 |
+| 统一错误文案 | `drivers/errors.dart` 的 `describeError()` 按 `DriverErrorKind` 追一句可执行建议（认证/路径/权限/网络/代理/不支持），传输卡片用 `shortError()` 截断 |
+| 未知大小进度 | `TransferTask.indicatorValue` 在 `total == 0` 时返回 null → 进度条画不确定态，百分比显示「—」 |
+| 恢复任务的挂载登记 | `TransferManager.restore(saved, mounts)` 会把挂载登记进 `_mounts`。**修的是真 bug**：原来只传 id 集合，重启后恢复的任务点「继续」一律报「挂载已不存在」 |
+| 纯逻辑单测 | `test/core_logic_test.dart`（路径、令牌桶、分片状态 JSON、错误文案、进度不确定态），CI 在 analyze 后跑 `flutter test` |
 
 ---
 
@@ -200,11 +221,15 @@ lib/
     format.dart                路径拼接与规范化、字节/速度/时间格式化、文件类型→图标与配色
     store.dart                 AppPaths（便携 userdata）、Prefs、SecureStore（系统凭据 + Windows 便携双写）
     transfer_store.dart        传输记录持久化（userdata/transfers.json，保留 60 条）
+    multipart_store.dart       S3 分片上传状态（userdata/multipart.json，含 uploadId 与分片 ETag）
+    limiter.dart               令牌桶限速（上传/下载各一个桶 + throttleStream）
+    version.dart               版本号单一来源（kAppVersion / kAppVersionLabel）
   platform/                    ← 仅 Windows 生效，Android 上全部被 Platform.isWindows 挡掉
     desktop_shell.dart         托盘图标/右键菜单/窗口显隐；单击无反应、双击显示
     single_instance.dart       回环端口 47913 的单实例保护
   drivers/
-    storage_driver.dart        统一接口 + DriverException + Capability
+    storage_driver.dart        统一接口 + DriverException + Capability + uploadResumeOffset
+    errors.dart                describeError / shortError（按 DriverErrorKind 给可执行建议）
     net.dart                   ProxyTunnel（CONNECT/SOCKS5）+ TunnelSocket + buildHttpClient
     factory.dart               createDriver / testMount（凭据从安全存储取）
     ftp_driver.dart            自实现 FTP（含 _FtpSession 行协议解析）
@@ -225,6 +250,7 @@ lib/
     add_mount_page.dart        添加挂载弹窗（含代理与连接测试）
     settings_page.dart         数据/传输/安全/关于
   ui/kit.dart                  按钮、协议徽标、状态点、空状态、输入框装饰
+test/core_logic_test.dart    纯逻辑单测（路径 / 令牌桶 / 分片状态 / 错误文案 / 进度）
 assets/
   tray.ico / tray.png          Windows 托盘图标（256px 圆角 N，脚本生成，无需设计源文件）
 design/index.html              设计稿
@@ -291,6 +317,30 @@ HTTP 类只接受 `206 Partial Content`：服务器返回 200 说明忽略了 Ra
 只能用 0.8.4 的 `onDragDone`/`DropDoneDetails.files`。
 **升级 `file_picker` 到 12.x 时，可以顺手把 desktop_drop 升到 0.9.x，但两者必须同批改。**
 
+**ADR-13 限速用全局令牌桶，在驱动循环里取令牌**
+dio 的 `onSendProgress` 是同步回调，没法在里面 `await`；而各驱动的读写循环本来就是
+async 的。所以把桶放在 `TransferLimiter.instance`，驱动在自己循环里
+`await bucket.take(chunk.length)`——一处生效、五个协议一致，也不用改 `ProgressFn` 签名。
+代价：驱动层依赖了一个全局单例（可接受，它只影响速率，不影响正确性）。
+**新增驱动必须在长循环里取令牌**，否则该协议既不限速、暂停也会在该循环里失效。
+
+**ADR-14 S3 分片失败不再 Abort，改为保留断点**
+v1 的约定是「任何失败都 AbortMultipartUpload，避免垃圾分片」。加了续传之后这条不再成立：
+用户暂停一次就把已传完的几 GB 分片全丢掉，代价远大于清理成本。现在改为把状态落盘、
+失败只保留，交给 S3 的 lifecycle 规则回收（未完成分片本来就该由服务端兜底）。
+真正的取消（用户点 ×）目前与「暂停」在驱动层无法区分，因此也留着状态，最多多占一点存储。
+
+**ADR-15 WebDAV 上传写临时名再 MOVE**
+WebDAV 没有标准追加写，也不能保证中断回滚。直接 PUT 正式名会留下「看起来完整其实缺尾部」
+的文件——比失败更糟，因为用户不会重传。改为 `<name>.nimbo-part` + `MOVE`：
+正式路径要么是旧文件要么是新文件。代价是同目录会短暂出现临时文件，异常退出可能残留。
+
+**ADR-16 上传续传起点下放到驱动**
+原来队列层统一用「远端 sizeOf 复核」，但 S3 分片上传远端根本没有对象（只有 uploadId），
+`sizeOf` 恒为 -1，等于永远不续传。改成 `StorageDriver.uploadResumeOffset()`：
+默认实现保留原语义，S3 覆写成「查分片表算已完成字节」。这样 S3 才能真正续传，
+队列层也不再需要知道协议差异。
+
 ---
 
 ## 5. 注意事项与已知坑（必读）
@@ -304,16 +354,20 @@ HTTP 类只接受 `206 Partial Content`：服务器返回 200 说明忽略了 Ra
    `size` 改成 `await file.length()`。升级时这两个调用点（`files_page.dart` 的 `_upload`）必须一起改。
 5. **Android 上 file_picker 返回的是缓存副本路径。** 大文件会额外占一倍存储空间；
    真正的 SAF 直读需要改用 `PlatformFile.readAsByteStream()` 并让驱动接受 Stream。
-6. **上传中断的远端残留要看协议。** S3 走 `AbortMultipartUpload` 清理；FTP/SFTP 的续传
-   依赖「远端大小 == 记录偏移」，不一致就整份重传并覆盖；WebDAV 没有标准追加语义，
-   中断必留半截文件，下次整份覆盖。**别假设「暂停一定续传」**，以 `driver.resume` 为准。
+6. **上传中断的远端残留要看协议（P4 已改）。**
+   S3 分片：状态落盘、**不再 Abort**，下次按分片表续传（见 ADR-14）；
+   FTP/SFTP/本地：续传依赖「远端大小 == 记录偏移」，不一致就整份重传并覆盖；
+   WebDAV：写 `*.nimbo-part` 再 MOVE，正式路径不会被写坏，但异常退出可能留下临时文件。
+   **别假设「暂停一定续传」**，以 `driver.resume` 为准。
 7. **FTPS 尚未实现。** `models.dart` 里 FTP 的 hint 写着「明文 / FTPS」属于文案超前，
    实际只有明文 FTP。要么实现 `AUTH TLS`，要么把文案改成「明文 FTP」。
-8. **`total` 未知时进度条不会动。** FTP 无 SIZE 时 `total = 0`，界面显示「未知大小」，
-   进度按 0% 显示。若要按已传字节画动效，需要给 `TransferTask` 加不确定态。
-9. **S3 目录删除只删一页。** `removeEntry` 对目录只列 1000 个对象就停，超大目录会漏。
-   需要补 `IsTruncated` / `ContinuationToken` 循环。
-10. **`mounts_page` 没有单挂载「测试连接」。** `testMount` 目前只在添加弹窗里用。
+8. **`total` 未知时的进度（P4 已修）。** FTP 无 SIZE 时 `total = 0`，现在
+   `TransferTask.indicatorValue` 返回 null，进度条画不确定态、百分比显示「—」。
+   新增进度展示时请用 `indicatorValue`，不要直接用 `progress`（会停在 0%）。
+9. **S3 目录删除已分页（P3 已修）。** `removeEntry` 用 `IsTruncated` +
+   `NextContinuationToken` 循环删除；超大目录仍是一个键一次 DELETE，耗时随对象数增长。
+10. **挂载页已支持单挂载「测试连接」与「编辑」（P4 已修）。** 凭据取自已保存的安全存储；
+    编辑时密码留空表示不修改，且不允许换协议（凭据语义不同）。
 11. **凭据在系统安全存储里，不写 prefs.json。** Windows 便携版换机器/重装系统后凭据会丢，
     需要重新输入；这是有意的（配置可备份，密码不落盘）。
 12. **浏览会话与传输各用各的连接。** `AppState._driver` 只服务浏览；
@@ -359,34 +413,46 @@ HTTP 类只接受 `206 Partial Content`：服务器返回 200 说明忽略了 Ra
     `lib/platform/single_instance.dart` 里的常量。
 24. **返回键用 `canPop: false` 全接管。** 任何新增的全屏路由（如自己 push 的页面）都要
     在 `PopScope` 之外单独处理返回，否则会一路回退到文件页而不是关闭该页面。
+25. **限速的取令牌点必须和 `onProgress` 在同一个循环里。** 令牌桶是全局单例
+    （`TransferLimiter.instance`），驱动在自己读写循环里 `await bucket.take(n)`；
+    dio 的 `onSendProgress` 是同步回调，**不能**在里面限速，只能整条流用
+    `throttleStream()` 包一层（WebDAV 上传就是这么做的）。新增驱动漏了这一步，
+    该协议就不会被限速。
+26. **S3 分片状态最多留 7 天**（`MultipartStore.maxAgeDays`），且只有「文件大小 + 分片大小
+    都对得上」才复用；否则当作没有，重新 Initiate。ETag 必须原样进 Complete，
+    所以别把状态里的 `parts` 只当进度用。
+27. **S3 的 uploadId 与本地记录可能不一致。** 续传前一定先 `ListParts` 以服务端为准：
+    本地记着 20 片、服务端被 lifecycle 清空的情况真实存在，直接信本地会 Complete 失败。
+28. **`userdata/multipart.json` 是隐藏的中间状态。** 换机器/删目录后旧的 uploadId 就找不到了，
+    表现为「续传变成整份重传」——这是预期行为，不要试图猜 uploadId。
+29. **`setPreventClose(true)` 之后必须自己处理 `onWindowClose`。** 只 hide 不拦截、
+    或只拦截不 hide，都会出现「点了 × 窗口没了但托盘还在 / 托盘点了没反应」。
+30. **恢复的传输任务要用「挂载对象」而不是 id。** `TransferManager.restore(saved, mounts)`
+    会把挂载登记进 `_mounts`；编辑挂载后要 `syncMount()`，否则任务会拿旧地址去连。
 
 ---
 
-## 6. 待办（按建议顺序，P2/P3 已完成项已移出）
+## 6. 待办（按建议顺序，P2/P3/P4 已完成项已移出）
 
 | # | 事项 | 为什么 | 难度 | 主要文件 |
 |---|---|---|---|---|
-| 1 | **S3 分片续传 + 分片并发** | 中断后整份重传成本最高；并发能改善高延迟链路。需持久化 `uploadId` 与已完成分片表 | 高 | `s3_driver.dart`、`transfer_manager.dart` |
-| 2 | **WebDAV 上传续传** | 标准 WebDAV 无追加语义，只能走第三方分块扩展或临时名 + rename | 高 | `webdav_driver.dart` |
-| 3 | **上传先写临时名再 rename** | 解决 WebDAV/FTP 中断残留；需要 `StorageDriver` 加 `atomic` 能力位 | 中 | `storage_driver.dart` + 三个驱动 |
-| 4 | **限速** | 上传/下载限速（全局或单任务） | 中 | 传输循环加令牌桶 |
-| 5 | **关闭到托盘** | 现在点 × 直接退出；需要 `windowManager.setPreventClose(true)` + `onWindowClose` 改 hide | 低 | `lib/platform/desktop_shell.dart` |
-| 6 | **SFTP / 本地容量** | 现在恒为「未知」；SFTP 可试 `SftpClient.statvfs`（API 未在文档站生成，需实际验证） | 低 | `sftp_driver.space()`、`local_driver.space()` |
-| 7 | **统一错误文案** | 代理不通 vs 目标不通要能区分；`DriverErrorKind` 已有，缺映射表 | 低 | `ui/` 新增文案映射 + 各 `catch` |
-| 8 | **预览扩展（音视频 / PDF）** | 现在只覆盖图片与文本；`media_kit` 需评估包体积 | 高 | `preview_page.dart` |
-| 9 | **FTPS（AUTH TLS）** | 目前只有明文 FTP，文案已改为「明文 FTP」；实现需要 TLS 升级 | 中 | `ftp_driver.dart` |
-
----
+| 1 | **预览扩展（音视频 / PDF）** | 现在只覆盖图片与文本；`media_kit`（音视频）与 `pdfx`（PDF）都要评估包体积与 Windows/Android 两端的 native 依赖 | 高 | `preview_page.dart`、`pubspec.yaml` |
+| 2 | **本地磁盘容量** | `dart:io` 没有取剩余空间的 API；`dart:ffi` 调 `GetDiskFreeSpaceExW` 可解，但要做错误兜底且只在 Windows 验证过 | 中 | 新增 `platform/disk_space.dart`、`local_driver.space()` |
+| 3 | **FTPS（AUTH TLS）** | 目前只有明文 FTP。`SecureSocket.secure(socket)` 能把隧道升级成 TLS，控制连接与数据连接各要升一次（`PROT P`） | 中 | `ftp_driver.dart` |
+| 4 | **WebDAV 上传续传** | 标准 WebDAV 无追加语义；只能走第三方分块扩展（如 `SabreDAV` 的 partial update）或放弃 | 高 | `webdav_driver.dart` |
+| 5 | **传输任务级限速** | 现在是全局桶；单任务限速需要每个任务一个桶，并在 `TransferTask` 里持久化 | 中 | `limiter.dart`、`transfer_manager.dart` |
+| 6 | **S3 分片状态的可视化清理** | 现在只能等 7 天过期；设置页给个「清理未完成的分片上传」按钮更直观（需要 `ListMultipartUploads`） | 低 | `multipart_store.dart`、`settings_page.dart` |
+| 7 | **FTPS/明文 FTP 文案** | `models.dart` 的 hint 已改为「明文 FTP」，实现 FTPS 后记得同步改回 | 低 | `models.dart` |
 
 ## 7. 后续工作建议
 
-1. **先做托盘（1）**：它是「看起来完成」的最后一块，且改动局限在桌面外壳，回归面小。
-   注意 `tray_manager 0.8` 与 0.5.x 的 API 完全不同（新 API 是 `TrayIcon.create()`，
-   旧写法要 `import 'package:tray_manager/legacy.dart'`），网上多数示例是旧 API。
-2. **再做 4 + 2（临时名 rename → S3 分片续传）**，把「大文件可靠性」补到底。
-   验收：1 GB 传 60% 暂停 → 继续从 60% 起；中途杀进程重启后仍能续（需 6 先做）。
-3. **然后 6 + 7（持久化 + 限速）**，这两项都属于「设置里有开关、行为可预期」的产品化收尾。
-4. 每个阶段结束都：CI 三绿 → 下载产物 → 按附录回归 → 更新本文档的「当前阶段」表与「构建记录」。
+1. **先把「回归」补上**：P0–P4 全部只验证到「双端编译 + analyze + 单测」，
+   没有一个协议在真机/真服务端跑过。第 8 节那张表才是真正的验收，先跑它。
+2. **再做 1（音视频/PDF 预览）**：用户感知最强的一项。注意 `media_kit` 会显著增大
+   Windows 产物（libmpv）与 APK 体积，先量一下再决定是否只做音频 + PDF。
+3. **然后 2 + 3（本地容量 / FTPS）**：都属于「协议能力补齐」，改动局限在单个驱动。
+4. **最后 5（任务级限速）**：产品化收尾，依赖设置页的输入组件。
+5. 每个阶段结束都：CI 三绿 → 下载产物 → 按附录回归 → 更新本文档的「当前阶段」表与「构建记录」。
 
 **给下一位 AI 的工作方式（重要）**：
 
@@ -423,6 +489,16 @@ HTTP 类只接受 `206 Partial Content`：服务器返回 200 说明忽略了 Ra
 | **返回键** | 依次按返回：子目录 → 挂载根 → 全部挂载 → 提示 → 再按 | 前三次逐级回退，最后一次连按两次才退出 |
 | **传输记录** | 传一半 → 杀进程 → 重开 | 任务列表还在，状态是「已暂停」，点继续能从断点接着传 |
 | **托盘** | 左键单击 / 左键双击 / 右键 | 单击无反应；双击显示并聚焦窗口；右键出现「显示主窗口 / 退出」 |
+| **关闭到托盘** | 设置里打开「关闭窗口时收进托盘」→ 点 ×；再从托盘双击 | 进程不退出，窗口隐藏；托盘双击后窗口恢复并聚焦 |
+| **直接退出** | 关掉「关闭窗口时收进托盘」→ 点 × | 进程退出；托盘图标消失 |
+| **限速** | 设置里下载限速 512 KB/s → 下一个大文件 | 速度稳定在 500 KB/s 上下；改成 0 后恢复满速 |
+| **SFTP 容量** | 打开 SFTP 挂载 | 标题出现「剩余 xx GB」；服务器不支持 statvfs 时不显示该项 |
+| **挂载测试连接** | 挂载页对某个挂载点「测试连接」 | 成功显示「根目录 N 项」；失败显示带建议的原因，且不影响已保存配置 |
+| **编辑挂载** | 挂载页「编辑」→ 只改显示名 → 保存 | 名称立即变；密码不用重输；正在浏览该挂载时自动重连 |
+| **WebDAV 原子上传** | 传大文件到 WebDAV，传一半暂停 | 正式文件不存在（或仍是旧版本）；目录里最多留一个 `*.nimbo-part` |
+| **S3 分片续传** | 传 100 MB+ 到 S3，60% 时暂停 → 继续 | 从已完成分片处继续，不从头传；`userdata/multipart.json` 有对应记录，完成后消失 |
+| **S3 分片并发** | 传 200 MB 到 MinIO | 3 条 PUT 并行（看服务端日志/网络），总时长明显短于串行 |
+| **错误文案** | 把某个挂载端口改成错的 → 打开 | 提示里除了协议错误，还有一句「检查主机与端口是否可达」这类建议 |
 | **单实例** | 程序已开，再双击 exe | 不出现第二个进程；已有窗口被唤到前台 |
 | **便携** | 整个文件夹换到另一台机器 | 挂载配置与密码都还在（`userdata/` 随目录走） |
 
@@ -452,8 +528,14 @@ HTTP 类只接受 `206 Partial Content`：服务器返回 200 说明忽略了 Ra
 | 2026-10-24 06:30 | `99c48e4` | ✅ | ✅ | ✅ | P3-1：FTP 匿名、返回键逐级回退、S3 目录分页删除、长按多选 |
 | 2026-10-24 06:36 | `67431e8` | ✅ | ✅ | ✅ | P3-2：传输记录持久化（`transfers.json`，恢复为已暂停） |
 | 2026-10-24 07:05 | `8b56751` | ✅ | ✅ | ✅ | P3-3：Windows 托盘/单实例/便携凭据 + 返回连按两次退出（新增 tray_manager、window_manager） |
+| 2026-10-24 08:10 | `19db18b` | ✅ | ✅ | ✅ | 设置页补齐 + 版本号单一来源 + 错误文案统一 + 未知大小不确定进度 |
+| 2026-10-24 08:13 | `1353b01` | ❌ | — | — | 令牌桶 `TokenBucket(this.rate)` 命中 setter（not_initialized_non_nullable_instance_field）；S3 查询串传了 `String?` |
+| 2026-10-24 08:16 | `bbe4d93` | ✅ | ✅ | ✅ | **P4 双端通过**：限速/SFTP 容量/挂载测试与编辑/WebDAV 原子上传/S3 分片续传 |
+| 2026-10-24 08:20 | `45e3c72` | ❌ | — | — | analyze 通过，新增的 `flutter test` 步骤失败：cnativeapi 的 native assets 需要 gtk+-3.0 / x11 / xi |
+| 2026-10-24 08:24 | `37e87f0` | — | — | — | 测试前补装 `libgtk-3-dev libx11-dev libxi-dev` |
 
-- 最近一次成功：run `39970353975`（commit `0237274`），`analyze` 输出 `No issues found!`
+- 最近一次成功：commit `bbe4d93`（analyze + android-arm64 + windows-x64 三绿）
+- 门禁现在是两条：`flutter analyze`（约 1.5 min）与 `flutter test`（纯逻辑单测，约 1 min）
 - 产物：`windows-x64-portable.zip` 12.53 MB（内含 `Nimbo.exe`）、`app-release.apk` 20.5 MB（arm64 release）
 - 耗时参考：analyze ≈ 1.5 min，windows ≈ 5 min，android ≈ 6 min
 
