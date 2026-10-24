@@ -29,19 +29,22 @@ class MountsPage extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('挂载管理', style: NimboText.display),
-                  SizedBox(height: 4),
-                  Text('协议差异集中在这里，文件页保持同构',
-                      style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w600,
-                          color: NimboColors.ink3)),
-                ],
+              // 窄屏 + 放大字号时说明文字自动换行，按钮不会被顶出去。
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('挂载管理', style: NimboText.display),
+                    SizedBox(height: 4),
+                    Text('协议差异集中在这里，文件页保持同构',
+                        style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w600,
+                            color: NimboColors.ink3)),
+                  ],
+                ),
               ),
-              const Spacer(),
+              const SizedBox(width: 10),
               NimboButton('添加挂载',
                   kind: NimboButtonKind.primary, icon: Icons.add_rounded, onPressed: onAddMount),
             ],
@@ -240,14 +243,14 @@ class _MountCardState extends State<_MountCard> {
               ),
               NimboButton(_testing ? '测试中…' : '测试连接',
                   kind: NimboButtonKind.ghost,
-                  height: 26,
+                  height: uiSize(26),
                   onPressed: _testing ? null : _test),
               const SizedBox(width: 4),
               NimboButton('编辑',
-                  kind: NimboButtonKind.secondary, height: 26, onPressed: widget.onEdit),
+                  kind: NimboButtonKind.secondary, height: uiSize(26), onPressed: widget.onEdit),
               const SizedBox(width: 4),
               NimboButton('打开',
-                  kind: NimboButtonKind.secondary, height: 26, onPressed: widget.onOpen),
+                  kind: NimboButtonKind.secondary, height: uiSize(26), onPressed: widget.onOpen),
             ],
           ),
           if (_result != null) ...[

@@ -52,6 +52,9 @@ gh run view --job $JOB --log-failed | sed -e 's/\x1b\[[0-9;]*m//g' | grep -E "er
   `Authorization` 会丢，表现为全站 401。
 - 文件页有两种态：`AppState.browseAll`（全部挂载聚合根）与挂载内目录树。
   新增页面级交互时先想清楚在哪个态生效。
+- **移动端字号**：Android 上 `MaterialApp.builder` 把文本缩放下限抬到 1.2
+  （`kNimboMobileScale`）。因此新增的固定高度/宽度/图标一律用 `uiSize()` 换算，
+  写死 `height: 30` 会裁字；含 `uiSize()` 的控件不能加 `const`。
 - 传输记录恢复要给**挂载对象**（`restore(saved, mounts)`），不是 id 集合；编辑挂载后
   调 `syncMount()`，否则恢复出来的任务会拿旧地址连。
 

@@ -216,13 +216,13 @@ class _AddMountDialogState extends State<AddMountDialog> {
               child: Row(
                 children: [
                   Container(
-                    width: 26,
-                    height: 26,
+                    width: uiSize(26),
+                    height: uiSize(26),
                     decoration: BoxDecoration(
                       gradient: NimboColors.gradient,
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Icon(Icons.add_rounded, size: 15, color: Colors.white),
+                    child: Icon(Icons.add_rounded, size: uiSize(15), color: Colors.white),
                   ),
                   const SizedBox(width: 10),
                   Text(_isEdit ? '编辑挂载' : '添加挂载',
@@ -322,7 +322,8 @@ class _AddMountDialogState extends State<AddMountDialog> {
             // 换协议更接近「删掉重建」，不如让用户重新添加一个。
             onTap: _isEdit ? null : () => _onProtocolChanged(p),
             child: Container(
-              width: 116,
+              // 窄屏 + 放大字号后 116 放不下协议说明，按同一系数放宽。
+              width: uiSize(116),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
               decoration: BoxDecoration(
                 color: _protocol == p ? const Color(0x0F38BDF8) : const Color(0xFFFCFDFF),

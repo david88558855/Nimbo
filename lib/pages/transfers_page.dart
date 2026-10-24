@@ -25,21 +25,25 @@ class TransfersPage extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('传输', style: NimboText.display),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${state.tasks.length} 个任务 · 进行中 ${running.length}'
-                    '${state.transfers.queuedCount > 0 ? ' · 排队 ${state.transfers.queuedCount}' : ''}'
-                    '${speed > 0 ? ' · ${humanSpeed(speed)}' : ''}',
-                    style: const TextStyle(
-                        fontSize: 10.5, fontWeight: FontWeight.w600, color: NimboColors.ink3),
-                  ),
-                ],
+              // 用 Expanded 而不是 Column+Spacer：字号放大后统计行会自动换行，
+              // 而不是把「清理已完成」按钮顶出屏幕。
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('传输', style: NimboText.display),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${state.tasks.length} 个任务 · 进行中 ${running.length}'
+                      '${state.transfers.queuedCount > 0 ? ' · 排队 ${state.transfers.queuedCount}' : ''}'
+                      '${speed > 0 ? ' · ${humanSpeed(speed)}' : ''}',
+                      style: const TextStyle(
+                          fontSize: 10.5, fontWeight: FontWeight.w600, color: NimboColors.ink3),
+                    ),
+                  ],
+                ),
               ),
-              const Spacer(),
+              const SizedBox(width: 10),
               NimboButton('清理已完成',
                   kind: NimboButtonKind.ghost, onPressed: state.clearFinishedTasks),
             ],
@@ -123,8 +127,8 @@ class _TaskCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 28,
-                height: 28,
+                width: uiSize(28),
+                height: uiSize(28),
                 decoration: BoxDecoration(
                   color: failed ? const Color(0x14F43F5E) : const Color(0x1438BDF8),
                   borderRadius: BorderRadius.circular(8),
@@ -139,7 +143,7 @@ class _TaskCard extends StatelessWidget {
                               : task.dir == TransferDir.upload
                                   ? Icons.upload_rounded
                                   : Icons.download_rounded,
-                  size: 15,
+                  size: uiSize(15),
                   color: color,
                 ),
               ),
@@ -241,7 +245,7 @@ class _TaskCard extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(5),
             child: Icon(icon,
-                size: 15, color: onTap == null ? const Color(0xFFCBD8E4) : NimboColors.ink3),
+                size: uiSize(15), color: onTap == null ? const Color(0xFFCBD8E4) : NimboColors.ink3),
           ),
         ),
       );

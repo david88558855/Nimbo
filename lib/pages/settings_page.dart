@@ -111,8 +111,8 @@ class _SettingsPageState extends State<SettingsPage> {
                             onTap: () => state.updateSettings((s) => s.maxConcurrent = n),
                             borderRadius: BorderRadius.circular(6),
                             child: Container(
-                              width: 30,
-                              height: 24,
+                              width: uiSize(30),
+                              height: uiSize(24),
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
                                 color: s.maxConcurrent == n

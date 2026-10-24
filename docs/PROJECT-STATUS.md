@@ -210,6 +210,21 @@ downloadTo / uploadFile / mkdir / removeEntry / move / probe`，错误统一抛 
 | 恢复任务的挂载登记 | `TransferManager.restore(saved, mounts)` 会把挂载登记进 `_mounts`。**修的是真 bug**：原来只传 id 集合，重启后恢复的任务点「继续」一律报「挂载已不存在」 |
 | 纯逻辑单测 | `test/core_logic_test.dart`（路径、令牌桶、分片状态 JSON、错误文案、进度不确定态），CI 在 analyze 后跑 `flutter test` |
 
+### 2.10 移动端字号（本轮）
+
+Android 上整体偏小（设计稿按桌面 1:1 排：正文 10.5–12.5、说明 9–10、按钮 11.5）。
+处理方式是**统一乘系数**，而不是逐个改 `fontSize`——后者会把标题/正文/说明的比例拆散。
+
+| 机制 | 位置 | 说明 |
+|---|---|---|
+| 文本缩放 | `app/theme.dart` 的 `nimboTextScaler()` + `main.dart` 的 `MaterialApp.builder` | Android 上把 `textScaler` 的**下限**抬到 `kNimboMobileScale`（1.2）；系统辅助功能里已经调得更大时原样返回，不叠加（叠加会溢出）。放在 `builder` 里，对话框 / SnackBar / Tooltip 一并生效 |
+| 固定尺寸 | `app/theme.dart` 的 `uiSize()` | 控件高度、图标、方形磁贴、列表行高、表格列宽统一按同一系数放大。**只放大文字不放大容器，字会被裁** |
+| 布局加固 | `files_page` | 面包屑改成横向可滚动（`reverse: true`，当前目录始终可见）；头部统计文字改 `Flexible` + 省略号；移动端隐藏「修改时间」列，宽度让给文件名；列表行高 `uiSize(56)`；聚合根网格 `mainAxisExtent: uiSize(104)` |
+| 头部让位 | `transfers_page` / `mounts_page` | 标题+说明改用 `Expanded`，说明文字可换行，右侧按钮不会被顶出屏幕 |
+
+验收口径：Android 上同屏信息量略降（因为字更大），但不能出现文字被裁、按钮出界、
+列表行错位；系统字号调到 1.3 时应用不再叠加放大（沿用系统），调到 0.85 时仍保持 1.2 的下限。
+
 ---
 
 ## 3. 文件地图
@@ -355,6 +370,13 @@ WebDAV 没有标准追加写，也不能保证中断回滚。直接 PUT 正式�
 会拿别人的前缀拼出一个长度正确、内容错位的文件。代价：文件被 touch 过就失去续传资格，
 这是安全的失败方向。
 
+**ADR-18 移动端字号用「全局缩放系数 + 尺寸换算」，不逐处改 fontSize**
+字号散落在 30 多个文件、上百处 `TextStyle(fontSize: ...)`，逐个改既容易漏，也会破坏
+「标题 26 / 正文 12.5 / 说明 9」这套比例。改成两件事：
+① `MaterialApp.builder` 里把 Android 的 `textScaler` 下限抬到 1.2（字号全部等比放大，
+层级关系不变，且尊重系统的辅助功能设置）；② 用 `uiSize()` 把固定高度/宽度/图标同步放大。
+代价：所有新增的固定尺寸都必须走 `uiSize()`，写死的 `height: 30` 会在移动端裁字。
+
 ---
 
 ## 5. 注意事项与已知坑（必读）
@@ -448,7 +470,12 @@ WebDAV 没有标准追加写，也不能保证中断回滚。直接 PUT 正式�
     `_putRange` 里的 `sizeOf(temp) == length` 是唯一可信的判据。
 32. **WebDAV 断点必须绑定「大小 + mtime」。** 只记长度会让同名同长度的另一个文件
     拿别人的前缀拼接。文件被 touch 过会丢续传资格 —— 这是有意的失败方向。
-33. **WebDAV 中断不再删临时文件。** 以前失败就 `DELETE *.nimbo-part`，现在保留它作为
+33. **移动端新增固定尺寸必须用 `uiSize()`。** `MediaQuery` 的文本缩放只作用于文字，
+    写死 `height: 30` 的按钮/行在 Android 上会把放大 1.2 倍的文字裁掉。
+    同理：新增 `Row` 里的长文本要放进 `Expanded`/`Flexible`，否则窄屏 + 放大字号必溢出。
+34. **不要用 `const` 包裹含 `uiSize()` 的控件。** `uiSize()` 依赖
+    `defaultTargetPlatform`，不是常量，`const` 构造会直接编译失败。
+35. **WebDAV 中断不再删临时文件。** 以前失败就 `DELETE *.nimbo-part`，现在保留它作为
     续传载体；代价是远端会留一个 `*.nimbo-part`，下次同名上传会续传/覆盖。
     取消任务不会主动清理远端临时文件（与 S3 分片的处理一致）。
 

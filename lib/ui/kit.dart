@@ -44,12 +44,14 @@ class NimboButton extends StatelessWidget {
         fg = NimboColors.dangerInk;
         border = Border.all(color: const Color(0xFFF8C9D2));
     }
+    // 高度必须和文字一起放大，否则固定 30 的按钮会把放大后的文字裁掉。
+    final boxHeight = uiSize(height);
     final content = Row(
       mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         if (icon != null) ...[
-          Icon(icon, size: 14, color: fg),
+          Icon(icon, size: uiSize(14), color: fg),
           const SizedBox(width: 5),
         ],
         Text(label,
@@ -65,8 +67,8 @@ class NimboButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           onTap: onPressed,
           child: Container(
-            height: height,
-            padding: const EdgeInsets.symmetric(horizontal: 11),
+            height: boxHeight,
+            padding: EdgeInsets.symmetric(horizontal: uiSize(11)),
             decoration:
                 kind == NimboButtonKind.primary
                     ? BoxDecoration(
@@ -145,11 +147,13 @@ class EntryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final v = visualFor(entry);
+    // 磁贴尺寸是相对字号设计的，字号放大后不跟着放会显得局促。
+    final s = uiSize(size);
     return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(color: v.background, borderRadius: BorderRadius.circular(size * 0.32)),
-      child: Icon(v.icon, size: size * 0.52, color: v.color),
+      width: s,
+      height: s,
+      decoration: BoxDecoration(color: v.background, borderRadius: BorderRadius.circular(s * 0.32)),
+      child: Icon(v.icon, size: s * 0.52, color: v.color),
     );
   }
 }
@@ -181,13 +185,14 @@ class EmptyBlock extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 48,
-              height: 48,
+              width: uiSize(48),
+              height: uiSize(48),
               decoration: BoxDecoration(
                 color: danger ? const Color(0x14F43F5E) : const Color(0x1438BDF8),
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, size: 22, color: danger ? NimboColors.danger : NimboColors.sky600),
+              child: Icon(icon,
+                  size: uiSize(22), color: danger ? NimboColors.danger : NimboColors.sky600),
             ),
             const SizedBox(height: 12),
             Text(title,
@@ -249,7 +254,7 @@ InputDecoration nimboInput({String? hint, Widget? suffix}) => InputDecoration(
       hintText: hint,
       hintStyle: const TextStyle(fontSize: 12, color: NimboColors.ink4),
       suffixIcon: suffix,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: uiSize(10)),
       filled: true,
       fillColor: const Color(0xFFFCFDFF),
       border: OutlineInputBorder(

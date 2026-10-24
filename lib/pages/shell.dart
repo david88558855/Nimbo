@@ -114,7 +114,8 @@ class _NimboShellState extends State<NimboShell> {
             border: Border(top: BorderSide(color: NimboColors.line)),
           ),
           child: NavigationBar(
-            height: 62,
+            // 底部 Tab 的高度要跟着字号走，否则放大的标签会被裁。
+            height: uiSize(62),
             selectedIndex: _index,
             backgroundColor: Colors.white,
             surfaceTintColor: Colors.transparent,
@@ -173,13 +174,13 @@ class _Rail extends StatelessWidget {
             child: Row(
               children: [
                 Container(
-                  width: 28,
-                  height: 28,
+                  width: uiSize(28),
+                  height: uiSize(28),
                   decoration: BoxDecoration(
                     gradient: NimboColors.gradient,
                     borderRadius: BorderRadius.circular(9),
                   ),
-                  child: const Icon(Icons.cloud_outlined, size: 17, color: Colors.white),
+                  child: Icon(Icons.cloud_outlined, size: uiSize(17), color: Colors.white),
                 ),
                 const SizedBox(width: 9),
                 const Text('Nimbo',
@@ -344,8 +345,8 @@ class _MountSwitcher extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: 30,
-                height: 30,
+                width: uiSize(30),
+                height: uiSize(30),
                 decoration: BoxDecoration(
                   gradient: NimboColors.gradient,
                   borderRadius: BorderRadius.circular(9),
@@ -423,11 +424,11 @@ class _NavItem extends StatelessWidget {
           borderRadius: BorderRadius.circular(9),
           onTap: onTap,
           child: Container(
-            height: 34,
+            height: uiSize(34),
             padding: const EdgeInsets.symmetric(horizontal: 9),
             child: Row(
               children: [
-                Icon(icon, size: 15, color: color),
+                Icon(icon, size: uiSize(15), color: color),
                 const SizedBox(width: 9),
                 Text(label,
                     style: TextStyle(

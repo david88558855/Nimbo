@@ -82,6 +82,40 @@ class NimboRadius {
   static const field = 9.0;
 }
 
+// ---------------------------------------------------------------------------
+// 移动端字号与尺寸
+// ---------------------------------------------------------------------------
+
+/// Android 上字号与控件尺寸的统一放大系数。
+///
+/// 设计稿是按桌面 1:1 排的：正文 10.5–12.5、说明文字 9–10、按钮 11.5。同一组数值
+/// 放到高 dpi 的手机上明显偏小。这里**不去改各个 fontSize**——那会把标题/正文/说明
+/// 的比例关系拆散；而是整体乘一个系数，层级与排版比例原样保留。
+///
+/// 1.2 是权衡结果：再大（≥1.3）会让三栏/表格类布局在 360dp 宽上明显拥挤，
+/// 再小（≤1.1）则看不出改善。
+const double kNimboMobileScale = 1.2;
+
+/// 当前平台是否需要放大（Android）。桌面保持设计稿原尺寸。
+bool get nimboScaleUpUi => defaultTargetPlatform == TargetPlatform.android;
+
+/// 固定尺寸（控件高度、图标、方形磁贴、列表行高）跟随字号一起放大。
+///
+/// 必须手动乘：`MediaQuery` 的文本缩放只影响文字，固定 30/34/44 的容器会把放大后
+/// 的文字裁掉（表现为文字上下被切或 RenderFlex overflow）。
+double uiSize(double base) => nimboScaleUpUi ? base * kNimboMobileScale : base;
+
+/// 文本缩放：只在 Android 上做「下限保证」，不覆盖用户的辅助功能设置。
+///
+/// 系统里已经调到比 [kNimboMobileScale] 更大时原样返回——叠加会直接溢出。
+TextScaler nimboTextScaler(BuildContext context) {
+  final system = MediaQuery.textScalerOf(context);
+  if (!nimboScaleUpUi) return system;
+  final factor = system.scale(10) / 10;
+  if (factor >= kNimboMobileScale) return system;
+  return TextScaler.linear(kNimboMobileScale);
+}
+
 ThemeData buildNimboTheme() {
   const scheme = ColorScheme.light(
     primary: NimboColors.sky600,

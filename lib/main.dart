@@ -38,6 +38,13 @@ class NimboApp extends StatelessWidget {
       title: 'Nimbo',
       debugShowCheckedModeBanner: false,
       theme: buildNimboTheme(),
+      // 整体字号：Android 上把文本缩放的「下限」抬到 kNimboMobileScale，
+      // 桌面完全跟随系统。放在 builder 里是为了让对话框、SnackBar、Tooltip
+      // 这些由 Navigator/Overlay 创建的内容也一起生效。
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaler: nimboTextScaler(context)),
+        child: child ?? const SizedBox.shrink(),
+      ),
       home: AnimatedBuilder(
         animation: state,
         builder: (context, _) => NimboShell(state: state),

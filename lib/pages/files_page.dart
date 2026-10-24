@@ -104,7 +104,8 @@ class _AllMounts extends StatelessWidget {
             padding: EdgeInsets.fromLTRB(18, 0, 18, state.tasks.isEmpty ? 18 : 8),
             gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
               maxCrossAxisExtent: wide ? 340 : 560,
-              mainAxisExtent: 104,
+              // 卡片里有 3 行文字，字号放大后固定 104 会把最后一行挤出去。
+              mainAxisExtent: uiSize(104),
               crossAxisSpacing: 10,
               mainAxisSpacing: 10,
             ),
@@ -148,12 +149,13 @@ class _MountCard extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: 38,
-                height: 38,
+                width: uiSize(38),
+                height: uiSize(38),
                 decoration: BoxDecoration(
                     color: mount.protocol.bg,
                     borderRadius: BorderRadius.circular(11)),
-                child: Icon(_icon(mount.protocol), size: 19, color: mount.protocol.color),
+                child: Icon(_icon(mount.protocol),
+                    size: uiSize(19), color: mount.protocol.color),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -241,66 +243,77 @@ class _Header extends StatelessWidget {
         children: [
           Row(
             children: [
-              InkWell(
-                onTap: state.showAll,
-                borderRadius: BorderRadius.circular(6),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+              // 路径层级深 + 字号放大后，面包屑很容易顶破一行：改成横向可滚动，
+              // reverse 让「当前目录」这一段始终可见（而不是被挤到右侧外面）。
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  reverse: true,
                   child: Row(
                     children: [
-                      Icon(Icons.apps_rounded, size: 12, color: NimboColors.ink3),
-                      SizedBox(width: 5),
-                      Text('全部挂载',
-                          style: TextStyle(
-                              fontSize: 10.5, fontWeight: FontWeight.w600, color: NimboColors.ink3)),
-                    ],
-                  ),
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 2),
-                child: Text('/', style: TextStyle(fontSize: 10, color: NimboColors.ink4)),
-              ),
-              InkWell(
-                onTap: () => state.cd('/'),
-                borderRadius: BorderRadius.circular(6),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.folder_outlined, size: 11, color: NimboColors.ink3),
-                      const SizedBox(width: 5),
-                      Text(mount.name,
-                          style: TextStyle(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w600,
-                              color: segments.isEmpty ? NimboColors.ink2 : NimboColors.ink3)),
-                    ],
-                  ),
-                ),
-              ),
-              for (var i = 0; i < segments.length; i++) ...[
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 2),
-                  child: Text('/', style: TextStyle(fontSize: 10, color: NimboColors.ink4)),
-                ),
-                InkWell(
-                  onTap: () => state.cd('/${segments.take(i + 1).join('/')}'),
-                  borderRadius: BorderRadius.circular(6),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-                    child: Text(
-                      segments[i],
-                      style: TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w600,
-                        color: i == segments.length - 1 ? NimboColors.ink2 : NimboColors.ink3,
+                      InkWell(
+                        onTap: state.showAll,
+                        borderRadius: BorderRadius.circular(6),
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+                          child: Row(
+                            children: [
+                              Icon(Icons.apps_rounded, size: 12, color: NimboColors.ink3),
+                              SizedBox(width: 5),
+                              Text('全部挂载',
+                                  style: TextStyle(
+                                      fontSize: 10.5, fontWeight: FontWeight.w600, color: NimboColors.ink3)),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 2),
+                        child: Text('/', style: TextStyle(fontSize: 10, color: NimboColors.ink4)),
+                      ),
+                      InkWell(
+                        onTap: () => state.cd('/'),
+                        borderRadius: BorderRadius.circular(6),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.folder_outlined, size: 11, color: NimboColors.ink3),
+                              const SizedBox(width: 5),
+                              Text(mount.name,
+                                  style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: segments.isEmpty ? NimboColors.ink2 : NimboColors.ink3)),
+                            ],
+                          ),
+                        ),
+                      ),
+                      for (var i = 0; i < segments.length; i++) ...[
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 2),
+                          child: Text('/', style: TextStyle(fontSize: 10, color: NimboColors.ink4)),
+                        ),
+                        InkWell(
+                          onTap: () => state.cd('/${segments.take(i + 1).join('/')}'),
+                          borderRadius: BorderRadius.circular(6),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+                            child: Text(
+                              segments[i],
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w600,
+                                color: i == segments.length - 1 ? NimboColors.ink2 : NimboColors.ink3,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-              ],
-              const Spacer(),
+              ),
               IconButton(
                 tooltip: '刷新',
                 onPressed: state.refresh,
@@ -321,14 +334,19 @@ class _Header extends StatelessWidget {
                     style: NimboText.display),
               ),
               const SizedBox(width: 10),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 3),
-                child: Text(
-                  // 容量只在协议支持时出现（WebDAV quota / SFTP statvfs），否则省略。
-                  '${state.entries.length} 项 · ${humanBytes(totalSize)}'
-                  '${state.space == null ? '' : ' · 剩余 ${humanBytes(state.space!.free)}'}',
-                  style: const TextStyle(
-                      fontSize: 10.5, fontWeight: FontWeight.w600, color: NimboColors.ink3),
+              // 可收缩 + 省略号：统计文字比按钮先让位，否则窄屏会顶出边界。
+              Flexible(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: Text(
+                    // 容量只在协议支持时出现（WebDAV quota / SFTP statvfs），否则省略。
+                    '${state.entries.length} 项 · ${humanBytes(totalSize)}'
+                    '${state.space == null ? '' : ' · 剩余 ${humanBytes(state.space!.free)}'}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 10.5, fontWeight: FontWeight.w600, color: NimboColors.ink3),
+                  ),
                 ),
               ),
               const Spacer(),
@@ -370,10 +388,11 @@ class _UploadButton extends StatelessWidget {
         if (v == 'files') _upload(context, state);
         if (v == 'folder') _uploadFolder(context, state);
       },
-      itemBuilder: (_) => const [
+      // 不能是 const 列表：高度由 uiSize() 在运行时按平台换算。
+      itemBuilder: (_) => [
         PopupMenuItem(
           value: 'files',
-          height: 38,
+          height: uiSize(38),
           child: Row(children: [
             Icon(Icons.insert_drive_file_outlined, size: 15, color: NimboColors.ink3),
             SizedBox(width: 8),
@@ -382,7 +401,7 @@ class _UploadButton extends StatelessWidget {
         ),
         PopupMenuItem(
           value: 'folder',
-          height: 38,
+          height: uiSize(38),
           child: Row(children: [
             Icon(Icons.folder_copy_outlined, size: 15, color: NimboColors.ink3),
             SizedBox(width: 8),
@@ -391,8 +410,8 @@ class _UploadButton extends StatelessWidget {
         ),
       ],
       child: Container(
-        height: 30,
-        padding: const EdgeInsets.symmetric(horizontal: 11),
+        height: uiSize(30),
+        padding: EdgeInsets.symmetric(horizontal: uiSize(11)),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           gradient: NimboColors.gradient,
@@ -425,7 +444,7 @@ class _SelectionBar extends StatelessWidget {
     final n = state.pickedCount;
     final all = state.entries.isNotEmpty && n >= state.entries.length;
     return Container(
-      height: 44,
+      height: uiSize(44),
       margin: const EdgeInsets.fromLTRB(18, 0, 18, 8),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
@@ -437,10 +456,15 @@ class _SelectionBar extends StatelessWidget {
         children: [
           const Icon(Icons.checklist_rounded, size: 15, color: NimboColors.sky700),
           const SizedBox(width: 7),
-          Text(
-            n == 0 ? '选择要操作的项目' : '已选 $n 项',
-            style: const TextStyle(
-                fontSize: 11.5, fontWeight: FontWeight.w700, color: NimboColors.sky700),
+          // 可收缩：窄屏 + 放大字号时先截断提示语，保证右侧按钮完整可见。
+          Flexible(
+            child: Text(
+              n == 0 ? '选择要操作的项目' : '已选 $n 项',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  fontSize: 11.5, fontWeight: FontWeight.w700, color: NimboColors.sky700),
+            ),
           ),
           const SizedBox(width: 12),
           InkWell(
@@ -682,30 +706,31 @@ class _BodyState extends State<_Body> {
       child: Column(
         children: [
           Container(
-            height: 30,
+            height: uiSize(30),
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: const BoxDecoration(
               color: Color(0xFFFCFDFE),
               border: Border(bottom: BorderSide(color: NimboColors.line)),
             ),
-            child: const Row(
+            child: Row(
               children: [
-                Expanded(
+                const Expanded(
                   child: Text('名称',
                       style: TextStyle(
                           fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1, color: NimboColors.ink4)),
                 ),
                 SizedBox(
-                    width: 84,
-                    child: Text('大小',
+                    width: wide ? 84 : 64,
+                    child: const Text('大小',
                         textAlign: TextAlign.right,
                         style: TextStyle(
                             fontSize: 9,
                             fontWeight: FontWeight.w800,
                             letterSpacing: 1,
                             color: NimboColors.ink4))),
-                SizedBox(width: 116),
-                SizedBox(width: 34),
+                // 移动端不显示「修改时间」列：字号放大后它会把文件名挤没。
+                if (wide) const SizedBox(width: 116),
+                const SizedBox(width: 34),
               ],
             ),
           ),
@@ -767,7 +792,8 @@ class _Row extends StatelessWidget {
           state.beginSelection(entry);
         },
         child: Container(
-          height: wide ? 44 : 56,
+          // 行高跟着字号放大，否则放大后的文件名会被裁。
+          height: uiSize(wide ? 44 : 56),
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: const BoxDecoration(
             border: Border(bottom: BorderSide(color: Color(0xFFF0F4F9))),
@@ -790,25 +816,31 @@ class _Row extends StatelessWidget {
                 ),
               ),
               SizedBox(
-                width: 84,
+                width: wide ? 84 : 64,
                 child: Text(
                   entry.isDir ? '—' : humanBytes(entry.size),
                   textAlign: TextAlign.right,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                       fontSize: 11, fontWeight: FontWeight.w600, color: NimboColors.ink2),
                 ),
               ),
-              SizedBox(
-                width: 116,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 12),
-                  child: Text(
-                    formatShortDate(entry.modified),
-                    style: const TextStyle(
-                        fontSize: 10.5, fontWeight: FontWeight.w600, color: NimboColors.ink3),
+              // 移动端让出这一列，宽度全给文件名（放大字号后尤其重要）。
+              if (wide)
+                SizedBox(
+                  width: 116,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 12),
+                    child: Text(
+                      formatShortDate(entry.modified),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 10.5, fontWeight: FontWeight.w600, color: NimboColors.ink3),
+                    ),
                   ),
                 ),
-              ),
               SizedBox(
                 width: 34,
                 child: PopupMenuButton<String>(
@@ -867,15 +899,17 @@ class _PickBox extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(5),
       child: Container(
-        width: 17,
-        height: 17,
+        width: uiSize(17),
+        height: uiSize(17),
         decoration: BoxDecoration(
           color: checked ? NimboColors.sky600 : Colors.white,
           borderRadius: BorderRadius.circular(5),
           border: Border.all(
               color: checked ? NimboColors.sky600 : const Color(0xFFCFDCE8), width: 1.3),
         ),
-        child: checked ? const Icon(Icons.check_rounded, size: 12, color: Colors.white) : null,
+        child: checked
+            ? Icon(Icons.check_rounded, size: uiSize(12), color: Colors.white)
+            : null,
       ),
     );
   }
@@ -1149,7 +1183,7 @@ class _TaskStrip extends StatelessWidget {
                 '${latest.speed > 0 ? ' · ${humanSpeed(latest.speed)}' : ''}';
 
     return Container(
-      height: 58,
+      height: uiSize(58),
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: const BoxDecoration(
         color: Colors.white,
