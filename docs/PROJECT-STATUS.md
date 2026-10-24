@@ -1104,9 +1104,11 @@ OpenList 的做法是真正的虚拟文件系统（一个根下挂多个存储�
 | 2026-10-24 13:50 | `feaf088` | ✅（含单测 41 项） | ✅ | ✅ | Windows 端隐藏侧栏挂载切换器（平板保留） |
 | 2026-10-24 14:15 | `7787eee` | ✅（含单测 41 项） | ✅ | ✅ | Windows 下载目录跟随系统；多挂载常驻会话；复制/移动（新增 `pick_destination.dart`） |
 | 2026-10-24 14:22 | `6d9f3ff` | ✅（含单测 41 项） | ✅ | ✅ | 修 `'$base\Nimbo'` 丢反斜杠（analyze 报 unnecessary_string_escapes） |
-| 2026-10-24 14:33 | `6bdec0c` | ✅（含单测 41 项） | ✅ | ✅ | **当前最终状态**：去掉插值多余花括号，analyze 回到 17 条既有 info |
+| 2026-10-24 14:33 | `6bdec0c` | ✅（含单测 41 项） | ✅ | ✅ | 去掉插值多余花括号，analyze 回到 17 条既有 info |
+| 2026-10-24 15:30 | `3d0e46f` | ✅（含单测 41 项） | ✅ | ✅ | 桌面端标题行新增「返回上层」按钮（移动端不加） |
+| 2026-10-24 15:52 | `e90f8f4` | ✅（含单测 41 项） | ✅ | ✅ | **当前最终状态**：挂载卡片重排（按钮统一 28、删除常态浅红底）+ 显示名称按内容自动生成 |
 
-- 最近一次成功：commit `6bdec0c`（analyze 17 条既有 info + flutter test 41 项 + android-arm64 + windows-x64 全绿）
+- 最近一次成功：commit `e90f8f4`（analyze 17 条既有 info + flutter test 41 项 + android-arm64 + windows-x64 全绿）
 - `flutter analyze` 现有 17 条 info（tray_manager legacy API 的 deprecated 提示为主），无 warning/error
 - 门禁现在是两条：`flutter analyze`（约 1.5 min）与 `flutter test`（纯逻辑单测，约 1 min）
 - 产物：`windows-x64-portable.zip` 12.53 MB（内含 `Nimbo.exe`）、`app-release.apk` 20.5 MB（arm64 release）
