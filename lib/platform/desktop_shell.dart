@@ -6,7 +6,8 @@ import 'dart:ui' show Size;
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/widgets.dart' show WidgetsBinding;
 import 'package:tray_manager/legacy.dart';
-import 'package:tray_manager/tray_manager.dart' show TrayIconDoubleClickedEvent;
+import 'package:tray_manager/tray_manager.dart'
+    show ContextMenuTrigger, TrayIconDoubleClickedEvent;
 import 'package:window_manager/window_manager.dart';
 
 import '../core/store.dart';
@@ -14,17 +15,25 @@ import '../core/store.dart';
 /// Windows 桌面外壳：托盘图标、右键菜单、主窗口显隐、关窗行为。
 ///
 /// 交互约定：
-/// - 左键单击：无反应
-/// - 左键双击：显示并聚焦主窗口
-/// - 右键：菜单「显示主窗口 / 退出」
+/// - 左键单击 / 双击：显示并聚焦主窗口（连点由 [showWindow] 内部去重）
+/// - 右键：弹出菜单「显示主窗口 / 退出」
 /// - 点窗口 ×：收进托盘（默认）；托盘不可用、或用户关掉该设置时直接退出
 ///
-/// 三个容易踩的点（都在这份实现里处理）：
-/// 1. `setPreventClose(true)` 之后必须自己处理 [onWindowClose]，否则窗口控件被销毁，
+/// 五个容易踩的点（都在这份实现里处理）：
+/// 1. **右键菜单必须显式打开原生触发**（[ContextMenuTrigger.rightClicked]）。
+///    nativeapi 的托盘 `context_menu_trigger_` 默认是 `None`：右键只发
+///    `TrayIconRightClickedEvent`，不会弹菜单；而 `tray_manager` 0.8 的
+///    兼容层 `setContextMenu()` 只挂菜单、**从不**设这个触发器。
+///    只调 `setContextMenu()` 的结果就是「右键毫无反应」。
+/// 2. `setPreventClose(true)` 之后必须自己处理 [onWindowClose]，否则窗口控件被销毁，
 ///    托盘还在但点了没反应；
-/// 2. 菜单点击会被 `tray_manager` 派发两次（`MenuItem.onClick` 与
+/// 3. 菜单点击会被 `tray_manager` 派发两次（`MenuItem.onClick` 与
 ///    `TrayListener.onTrayMenuItemClick` 各一次），退出必须幂等；
-/// 3. 托盘初始化失败时绝不能「收进托盘」——窗口隐藏后没有任何入口能叫回来。
+/// 4. 托盘初始化失败时绝不能「收进托盘」——窗口隐藏后没有任何入口能叫回来；
+/// 5. 菜单点击回调是在原生 `TrackPopupMenu` 的调用栈里派发的（插件用
+///    `TPM_RETURNCMD` 保证这一点），此时立刻 `trayManager.destroy()` 会把菜单对象
+///    从正在执行的 `Menu::Open()` 底下释放掉（use-after-free）。所以退出要先让出
+///    一小段时间再销毁。
 class DesktopShell with TrayListener, WindowListener {
   DesktopShell._();
 
@@ -35,10 +44,15 @@ class DesktopShell with TrayListener, WindowListener {
   /// 托盘图标 + 右键菜单都就绪后才为 true；关窗行为据此决定 hide 还是退出。
   bool _trayReady = false;
 
-  /// 退出流程只跑一次（菜单点击会触发两次，见类注释第 2 条）。
+  /// 原生「右键自动弹菜单」是否真的生效。
+  ///
+  /// 为 false 时 [onTrayIconRightMouseDown] 会手动 `popUpContextMenu()` 兜底；
+  /// 为 true 时那个回调必须是空的，否则会弹两次（第二次会立刻把第一次关掉）。
+  bool _menuByNativeTrigger = false;
+
+  /// 退出流程只跑一次（菜单点击会触发两次，见类注释第 3 条）。
   bool _exiting = false;
 
-  DateTime? _lastClickAt;
   DateTime? _lastShowAt;
 
   /// 退出前的收尾（落盘配置与传输记录）。由 `main.dart` 注入，
@@ -67,6 +81,8 @@ class DesktopShell with TrayListener, WindowListener {
         MenuItem.separator(),
         MenuItem(key: 'exit', label: '退出', onClick: (_) => exitApp()),
       ]));
+      // 光挂菜单不够：原生默认不显示。见类注释第 1 条。
+      _menuByNativeTrigger = await _enableRightClickMenu();
       try {
         // 0.5.x 兼容层会忽略 DoubleClicked 事件（`_wireTrayEvents` 里直接 break），
         // 这里直接挂到底层图标上兜底；挂不上也不影响菜单。
@@ -75,6 +91,10 @@ class DesktopShell with TrayListener, WindowListener {
         });
       } catch (_) {}
       _trayReady = true;
+      debugPrint(
+        'Nimbo: 托盘就绪（右键菜单触发方式：'
+        '${_menuByNativeTrigger ? '原生' : '手动兜底'}）',
+      );
     } catch (e) {
       _trayReady = false;
       debugPrint('Nimbo: 托盘初始化失败，关闭窗口将直接退出：$e');
@@ -90,6 +110,25 @@ class DesktopShell with TrayListener, WindowListener {
       await trayManager.setIcon('assets/tray.ico');
     } catch (_) {
       await trayManager.setIcon('assets/tray.png');
+    }
+  }
+
+  /// 打开原生的「右键自动弹菜单」开关，并读回确认已经生效。
+  ///
+  /// 读回是必要的：`setContextMenuTrigger` 在极老的 nativeapi 上会静默无效，
+  /// 那时读回仍然是 `none`，只有靠它才能发现「设过了但没用」，从而走兜底。
+  Future<bool> _enableRightClickMenu() async {
+    final icon = trayManager.trayIcon;
+    if (icon == null) {
+      debugPrint('Nimbo: 托盘图标不存在，无法设置右键菜单触发器');
+      return false;
+    }
+    try {
+      icon.setContextMenuTrigger(ContextMenuTrigger.rightClicked);
+      return icon.getContextMenuTrigger() == ContextMenuTrigger.rightClicked;
+    } catch (e) {
+      debugPrint('Nimbo: 原生右键触发设置失败，改用手动弹出：$e');
+      return false;
     }
   }
 
@@ -125,11 +164,11 @@ class DesktopShell with TrayListener, WindowListener {
 
   Future<void> showWindow() async {
     if (!Platform.isWindows) return;
-    // 双击会同时命中「时间差判定」与底层 DoubleClicked 两条路，
-    // 200ms 内的重复请求直接吞掉，避免 show/restore/focus 连做两遍。
+    // 单击与双击、以及底层 DoubleClicked 事件可能连着触发，300ms 内的重复请求
+    // 直接吞掉，避免 show/restore/focus 连做几遍导致窗口闪烁。
     final now = DateTime.now();
     final last = _lastShowAt;
-    if (last != null && now.difference(last) < const Duration(milliseconds: 200)) return;
+    if (last != null && now.difference(last) < const Duration(milliseconds: 300)) return;
     _lastShowAt = now;
     try {
       await windowManager.show();
@@ -145,7 +184,7 @@ class DesktopShell with TrayListener, WindowListener {
     } catch (_) {}
   }
 
-  /// 彻底退出：先落盘，再销毁托盘、解除关窗拦截，最后 exit。
+  /// 彻底退出：先落盘，再让原生菜单栈解开，最后销毁托盘并 exit。
   Future<void> exitApp() async {
     if (_exiting) return; // 菜单点击会触发两次，只处理第一次
     _exiting = true;
@@ -154,6 +193,9 @@ class DesktopShell with TrayListener, WindowListener {
       // 给收尾 2 秒上限：磁盘异常时也必须能退出，不能被落盘卡死。
       if (flush != null) await flush().timeout(const Duration(seconds: 2));
     } catch (_) {}
+    // 菜单点击是在原生 `TrackPopupMenu` 的栈里派发的（见类注释第 5 条）：
+    // 立刻销毁托盘会把正在执行的菜单对象释放掉。先让出 60ms 等原生栈解开。
+    await Future<void>.delayed(const Duration(milliseconds: 60));
     try {
       await trayManager.destroy();
     } catch (_) {}
@@ -180,19 +222,29 @@ class DesktopShell with TrayListener, WindowListener {
 
   @override
   void onTrayIconMouseDown() {
-    // 单击必须无反应；系统在双击时会连发两次 down，用时间差识别。
-    final now = DateTime.now();
-    final last = _lastClickAt;
-    _lastClickAt = now;
-    if (last != null && now.difference(last) < const Duration(milliseconds: 450)) {
-      _lastClickAt = null;
-      showWindow();
-    }
+    // 左键单击与双击都「显示并聚焦主窗口」：原来单击是全空操作，用户会以为托盘坏了。
+    // 系统在双击时会连发两次 down，[showWindow] 的 300ms 去重负责吞掉第二次。
+    unawaited(showWindow());
+  }
+
+  @override
+  void onTrayIconRightMouseDown() {
+    // 原生触发已生效时这里必须什么都不做，否则会弹两次菜单
+    // （后一次弹出会把前一次顶掉，表现为「菜单一闪就没了」）。
+    if (_menuByNativeTrigger) return;
+    // 兜底：老版本 nativeapi 没有 context_menu_trigger，只能自己弹。
+    unawaited(() async {
+      try {
+        await trayManager.popUpContextMenu();
+      } catch (e) {
+        debugPrint('Nimbo: 手动弹出右键菜单失败：$e');
+      }
+    }());
   }
 
   @override
   void onTrayMenuItemClick(MenuItem menuItem) {
-    // 这个回调与 MenuItem.onClick 会被同时触发（见类注释第 2 条）。
+    // 这个回调与 MenuItem.onClick 会被同时触发（见类注释第 3 条）。
     // 正常路径已由 onClick 处理，这里保持空实现，避免同一动作跑两遍；
     // 保留重写是为了说明「不是漏了它」，也便于将来插件只派发其一时切换。
   }

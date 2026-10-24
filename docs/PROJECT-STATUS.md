@@ -186,7 +186,7 @@ downloadTo / uploadFile / mkdir / removeEntry / move / probe`，错误统一抛 
 | S3 目录删除 | `IsTruncated` + `NextContinuationToken` 循环，不再只删前 1000 个键 |
 | 长按多选 | 行内长按进入多选（移动端主入口），单项操作走行尾「更多」菜单 |
 | 传输记录持久化 | `core/transfer_store.dart` → `userdata/transfers.json`，保留 60 条；启动恢复为「已暂停」，不自动重跑；状态变化 700 ms 防抖落盘，退出时再落一次 |
-| Windows 托盘 | `lib/platform/desktop_shell.dart` + `assets/tray.ico`（脚本生成的 256px 圆角 N）。左键单击无反应、双击显示/还原/聚焦、右键菜单「显示主窗口 / 退出」 |
+| Windows 托盘 | `lib/platform/desktop_shell.dart` + `assets/tray.ico`（脚本生成的 256px 圆角 N）。左键单击/双击显示-还原-聚焦、悬停提示 `Nimbo`、右键菜单「显示主窗口 / 退出」（**需显式 `setContextMenuTrigger(rightClicked)`**，见 2.13） |
 | 单实例 | `lib/platform/single_instance.dart`：回环 47913 端口，第二个进程写入 `show` 后 `exit(0)`；不用锁文件，进程退出端口自然释放 |
 | 便携凭据 | Windows 双写 `userdata/credentials.dat`（固定密钥 XOR + base64），读取优先系统凭据库、失败回落便携文件；删挂载清两边。**这是可逆混淆，不是加密**，只解决「整个目录拷走密码还在」 |
 | 关闭到托盘 | `windowManager.setPreventClose(true)` + `WindowListener.onWindowClose`：按设置 `closeToTray` 决定 hide 还是退出（默认收进托盘）。不打开拦截时窗口控件会被销毁，托盘菜单点了也没反应 |
@@ -266,7 +266,7 @@ S3 与 WebDAV 都跑在 HTTP 上，端口本来就是 URL 的一部分。原来�
 
 | 行为 | 结论 | 关键实现 |
 |---|---|---|
-| 托盘右键菜单含「显示主窗口 / 退出」 | ✅ | `setIcon` → `setToolTip` → `setContextMenu(Menu([show, separator, exit]))`；菜单项走 `MenuItem.onClick`，`onTrayMenuItemClick` 留空（插件会把两者**都**派发，见坑 39） |
+| 托盘右键菜单含「显示主窗口 / 退出」 | ✅（2.13 修了「右键不弹」） | `setIcon` → `setToolTip` → `setContextMenu(Menu([show, separator, exit]))` → **`setContextMenuTrigger(rightClicked)`**；菜单项走 `MenuItem.onClick`，`onTrayMenuItemClick` 留空（插件会把两者**都**派发，见坑 39） |
 | 二次双击 exe 不再启动新实例，而是唤醒已有窗口 | ✅ 加固后 | 端口区间 47913–47922 + 握手（`nimbo:show` → 回 `nimbo`）；只有回包是 Nimbo 才认领，避免「端口被别的程序占用」时误判；判定放在 `WidgetsFlutterBinding` 之前，第二实例连引擎都不启动 |
 | 托盘后台运行，仅「退出」能结束进程 | ✅ 加固后 | `setPreventClose(true)` + `onWindowClose` → `hide()`；**托盘未就绪时改为直接退出**（否则窗口藏了、托盘没了，进程变僵尸）；`exitApp()` 幂等 + 退出前落盘 |
 
@@ -290,6 +290,39 @@ S3 与 WebDAV 都跑在 HTTP 上，端口本来就是 URL 的一部分。原来�
 5. **最小窗口尺寸可能超出屏幕**：`940×620` 在高 DPI 小屏上会大于可用区域，窗口顶出屏幕。
    现在按当前视图逻辑尺寸收一次下限（92% / 90%），并只在窗口小于下限时才 resize + center。
 
+### 2.13 托盘右键无菜单（根因：nativeapi 的默认触发器）
+
+现场：托盘图标可见、悬停有提示、左键能唤醒窗口，但**右键完全没有反应**，也没有菜单。
+
+**根因**（对照 `cnativeapi 0.5.2` 的 C++ 实现确认）：
+
+| 层 | 事实 |
+|---|---|
+| `nativeapi::TrayIcon` | `context_menu_trigger_` 默认初始化为 `ContextMenuTrigger::None`（`tray_icon_windows.cpp` 的 `Impl()` 初始化列表） |
+| Windows 消息处理 | `WM_RBUTTONUP` → `Emit<TrayIconRightClickedEvent>()`，**只有** `trigger == RightClicked` 时才追加 `OpenContextMenu()`；`None` 就到此为止 |
+| 因此 | 「挂菜单」与「右键弹菜单」是**两件独立的事**：`SetContextMenu()` 只是把菜单存进 `pimpl_->context_menu_`，不会顺带设置触发器 |
+| `tray_manager 0.8` 兼容层 | `TrayManager.setContextMenu()` 只调 `_ensureTrayIcon.setContextMenu(...)`，**从不**调 `setContextMenuTrigger()` —— 0.5.x 时代由平台层自动弹，改成 nativeapi 之后这个默认值变了 |
+
+结论：只调 `setContextMenu()` 的 0.8 兼容层用法在 Windows 上等于「菜单挂着但永远不会显示」，
+而且没有任何异常或日志，症状就是「右键毫无反应」。
+
+**修复**（`lib/platform/desktop_shell.dart`）：
+
+1. `setContextMenu()` 之后调 `trayIcon.setContextMenuTrigger(ContextMenuTrigger.rightClicked)`，
+   并**读回** `getContextMenuTrigger()` 确认生效（老版本 nativeapi 上这个调用会静默无效）。
+2. 读回失败时保留兜底路径：`onTrayIconRightMouseDown()` 里手动 `popUpContextMenu()`。
+   两条路径互斥（`_menuByNativeTrigger`），否则会弹两次——第二次弹出会把第一次顶掉，
+   表现为「菜单一闪就消失」。
+3. 顺带把左键单击从「空操作」改成「显示并聚焦窗口」：单击没反应和「托盘坏了」无法区分，
+   双击会连发两次 down，由 `showWindow()` 的 300ms 去重吞掉（原来用 450ms 时间差
+   识别双击的写法一并删掉）。
+4. 退出路径加 60ms 让出：菜单点击是在原生 `TrackPopupMenu` 的调用栈里派发的
+   （插件用 `TPM_RETURNCMD` 保证点击回调在 `Menu::Open()` 内完成），此时立刻
+   `trayManager.destroy()` 会把正在被 `Open()` 使用的菜单对象释放掉（use-after-free）。
+
+`init()` 结束时会打一行日志，便于现场判断走的是哪条路径：
+`Nimbo: 托盘就绪（右键菜单触发方式：原生 / 手动兜底）`。
+
 ---
 
 ## 3. 文件地图
@@ -310,7 +343,8 @@ lib/
     limiter.dart               令牌桶限速（上传/下载各一个桶 + throttleStream）
     version.dart               版本号单一来源（kAppVersion / kAppVersionLabel）
   platform/                    ← 仅 Windows 生效，Android 上全部被 Platform.isWindows 挡掉
-    desktop_shell.dart         托盘图标/右键菜单/窗口显隐；单击无反应、双击显示
+    desktop_shell.dart         托盘图标/右键菜单/窗口显隐；单击与双击都显示，右键靠原生
+                               setContextMenuTrigger(rightClicked) + 手动兜底
     single_instance.dart       回环端口 47913 的单实例保护
   drivers/
     storage_driver.dart        统一接口 + DriverException + Capability + uploadResumeOffset
@@ -464,6 +498,15 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
 整段都不可用则放弃保护但正常启动。代价：极端情况下可能同时跑两个实例（可接受，
 比打不开强），且握手协议本身是明文回环通信（无敏感信息）。
 
+**ADR-22 右键菜单用「原生触发器优先 + 手动弹出兜底」**
+`tray_manager 0.8` 的兼容层不会设置 `ContextMenuTrigger`（默认 `None`），导致右键只发事件、
+不弹菜单。修法有三种：① 升级到 nativeapi 原生 API 自己管菜单；② 在 `onTrayIconRightMouseDown`
+里手动 `popUpContextMenu()`；③ 给现有托盘图标补 `setContextMenuTrigger(rightClicked)`。
+选 ③ 为主、② 为兜底：③ 是原生路径，菜单定位/前台窗口/键盘导航都由平台处理，
+不需要在 Dart 侧抢时序；② 依赖「在点击回调里同步调用 `TrackPopupMenu`」，菜单的点击回调
+会嵌在事件回调里派发（嵌套 native→Dart），可靠性差一些，只作为老版本 nativeapi 的保险。
+两者必须互斥，否则同一次右键会弹两次菜单。
+
 ---
 
 ## 5. 注意事项与已知坑（必读）
@@ -579,7 +622,15 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
     `<exe>/data/flutter_assets/assets/tray.ico`；便携包少拷 `data/` 就没有托盘。
 41. **`exit(0)` 不跑 `dispose()`。** 任何「彻底退出」的路径都要先 `flush()` 落盘，
     否则设置与传输断点会丢最后一秒。
-42. **WebDAV 中断不再删临时文件。** 以前失败就 `DELETE *.nimbo-part`，现在保留它作为
+43. **托盘右键不弹菜单，先看 `ContextMenuTrigger`。** `setContextMenu()` 只挂菜单、
+    不负责显示；nativeapi 默认 `None`，必须 `setContextMenuTrigger(rightClicked)`
+    （读回确认生效）。这是「图标在、左键有反应、右键毫无响应」的标准成因。
+44. **右键菜单的两条路径不能同时开。** 原生触发器生效时 `onTrayIconRightMouseDown`
+    必须为空，否则会弹两次（第二次会立刻关掉第一次）。
+45. **菜单点击回调在 `TrackPopupMenu` 的栈里。** 退出前不能立刻
+    `trayManager.destroy()`，否则会被 `Menu::Open()` 用到的菜单对象已被释放
+    （use-after-free）；`exitApp()` 里先 `await 60ms` 让原生栈解开。
+46. **WebDAV 中断不再删临时文件。** 以前失败就 `DELETE *.nimbo-part`，现在保留它作为
     续传载体；代价是远端会留一个 `*.nimbo-part`，下次同名上传会续传/覆盖。
     取消任务不会主动清理远端临时文件（与 S3 分片的处理一致）。
 
@@ -640,9 +691,12 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
 | **FTP 匿名** | 添加 FTP 时勾选「匿名登录」 | 用户名/密码置灰；能列出匿名目录 |
 | **返回键** | 依次按返回：子目录 → 挂载根 → 全部挂载 → 提示 → 再按 | 前三次逐级回退，最后一次连按两次才退出 |
 | **传输记录** | 传一半 → 杀进程 → 重开 | 任务列表还在，状态是「已暂停」，点继续能从断点接着传 |
-| **托盘** | 左键单击 / 左键双击 / 右键 | 单击无反应；双击显示并聚焦窗口；右键出现「显示主窗口 / 退出」 |
+| **托盘左键** | 左键单击托盘图标 | 窗口显示/还原并聚焦（若已在前台则无变化，不闪） |
+| **托盘右键** | 右键托盘图标 | 立刻弹出菜单（含「显示主窗口」「退出」）；点击菜单外区域能正常关闭；菜单不会只闪一下就消失 |
 | **托盘菜单项** | 右键托盘图标 | 菜单只有「显示主窗口」「退出」两项（中间分隔线）；点「显示主窗口」窗口出现并聚焦；点「退出」进程消失、托盘图标消失 |
-| **托盘双击** | 左键单击 / 双击 | 单击无反应；双击显示并聚焦（只触发一次，不闪） |
+| **托盘双击** | 左键双击 | 只执行一次显示+聚焦（300ms 去重生效，不闪两次） |
+| **悬停提示** | 鼠标停在托盘图标上 | 出现提示文字「Nimbo」 |
+| **右键触发器诊断** | 启动后看调试输出 | 出现「Nimbo: 托盘就绪（右键菜单触发方式：原生）」；若显示「手动兜底」则右键应仍能弹菜单 |
 | **单实例** | 程序在后台（已收进托盘）时再双击 exe | 不出现第二个进程；已有窗口被唤到前台；第二进程立即退出 |
 | **单实例（端口被占）** | 先用别的程序占住 47913，再启动 Nimbo | 仍能正常启动（换到 47914），不静默退出 |
 | **退出落盘** | 传一半 → 托盘「退出」→ 重开 | `userdata/transfers.json` 里能看到断点状态，任务恢复为「已暂停」 |
