@@ -84,7 +84,7 @@ git -c http.version=HTTP/1.1 ls-remote https://github.com/david88558855/Nimbo.gi
 | **P2 体验补齐** | 断点续传、预览、拖拽、多选批量、目录上传下载 | ✅ 完成 |
 | **P3 打磨** | 传输记录持久化、S3 目录分页删除、FTP 匿名、返回键逐级+双击退出、移动端长按多选、Windows 托盘/单实例、便携凭据、关闭到托盘 | ✅ 完成 |
 | **P4 可靠性** | 限速（上传/下载分开）、SFTP 容量、挂载测试与编辑、WebDAV 临时名 + MOVE、S3 分片续传 + 分片并发、统一错误文案、未知大小不确定进度、纯逻辑单测 | ✅ 完成 |
-| **P5 缺陷修复** | 全库审查 16 条（P0×2 / P1×2 / P2×8 / P3×4），批次 A→E 见 `docs/bug-audit.md`；**A 批（BUG-01/02 配置安全）已完成** | 🟡 进行中（余 B–E） |
+| **P5 缺陷修复** | 全库审查 16 条（P0×2 / P1×2 / P2×8 / P3×4），批次 A→E 见 `docs/bug-audit.md`；**A、B 批（BUG-01/02/03/04/10/11/14）已完成** | 🟡 进行中（余 C–E） |
 
 **一句话现状**：五个协议都能真实读写，上传下载都能排队跑，代理对五个协议全部生效；
 大文件中断后能接着传（下载全协议；上传 FTP/SFTP/本地按远端大小续传，S3 分片按分片表续传）；
@@ -571,6 +571,18 @@ Arial 的拉丁字形笔画细而均匀，且是 Windows 各版本（Win7 起）
 单测：`test/core_logic_test.dart` 新增「配置解析（prefs.json 容错）」5 例
 （正常顺序、非列表输入、坏条目只跳过自己、缺 id 跳过、null 元素跳过）。
 
+### 2.27 会话去重与取消语义（Batch B：BUG-03/04/10/11/14）
+
+| 缺陷 | 修法 |
+|---|---|
+| BUG-03 `sessionFor()` 缺 in-flight 去重 | 新增 `_pending: Map<String, Future<StorageDriver>>`：同一挂载正在建连接时，后来的调用直接复用这个 Future；重连路径先等旧 in-flight 完成再一起关 |
+| BUG-04 取消后半截文件被写回 | `TransferTask.discardPartial` 取代「立刻删」：`cancel()` 只打标记，真正删除挪到 `_run` 的 finally、**在 `driver.close()` 之后**执行 |
+| BUG-10 连接错误被 `dropSession` 清掉 | `open()` 的 catch 改为「先 `dropSession` 再写 `_sessionErrors`」——顺序反了错误会被清掉，`mountError()` 永远返回 null |
+| BUG-11 单实例 socket 无读超时 | `_serveSecondInstance` 加 5 秒 guard：外部程序连上不发数据就取消订阅并销毁 socket |
+| BUG-14 半截文件删除时机 | 与 BUG-04 同一处修复：`_markResumePoint` 也改成打标记，由 finally 统一删 |
+
+顺带：`resume()` 会清掉 `discardPartial`，避免「取消过又继续」时把要用的文件删了。
+
 ---
 
 ## 3. 文件地图
@@ -948,7 +960,12 @@ OpenList 的做法是真正的虚拟文件系统（一个根下挂多个存储�
 57. **解析挂载列表一律用 `parseMounts()`。** 别再写 `map(Mount.fromJson)` 这种惰性链：
     坏条目会中断整条链，而调用方此时可能已经 `clear()` 过列表（BUG-02）。
     配置读坏时会生成 `prefs.json.bak-*`，排查现场先看这个文件。
-58. **WebDAV 中断不再删临时文件。** 以前失败就 `DELETE *.nimbo-part`，现在保留它作为
+58. **删本地半截文件必须等 `driver.close()` 之后。** 驱动还握着写句柄，Windows 上删除会
+    静默失败（表现为「取消了但文件还在」）。统一用 `TransferTask.discardPartial` 标记，
+    由 `_run` 的 finally 处理（BUG-04/14）。
+59. **`sessionFor()` 已经做了 in-flight 去重，不要再包一层缓存。** 它返回的是「当前唯一
+    一条连接」，外部再包一份 Map 反而会出现两份引用、其中一份没人 close。
+60. **WebDAV 中断不再删临时文件。** 以前失败就 `DELETE *.nimbo-part`，现在保留它作为
     续传载体；代价是远端会留一个 `*.nimbo-part`，下次同名上传会续传/覆盖。
     取消任务不会主动清理远端临时文件（与 S3 分片的处理一致）。
 
