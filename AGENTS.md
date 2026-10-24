@@ -59,8 +59,10 @@ gh run view --job $JOB --log-failed | sed -e 's/\x1b\[[0-9;]*m//g' | grep -E "er
 - **没有「只读挂载」开关了**：`Mount.readOnly` 已删，写操作门禁只看 `activeMount` 是否存在。
   老配置里的 `readOnly` 键会被忽略；不要重新引入这个字段（权限问题应交给服务端 403）。
 - **下载目录**：`AppSettings.downloadDir`（空 = 默认）→ `TransferManager.downloadRoot` →
-  `downloadDir(root:)`。该函数会建目录 + 写探针，失败静默回落默认目录；
-  `localPath` 在入队时算好，改设置只影响新任务。
+  `downloadDir(root:)`。回落链是「用户目录 → 平台默认（Windows `下载/Nimbo`、
+  Android `/storage/emulated/0/Download/Nimbo`）→ 应用文档目录」，每级都用写探针验证；
+  `localPath` 在入队时算好，改设置只影响新任务。Android 11+ 没有「所有文件访问」权限时
+  公共目录写不进去，会落到应用私有目录——这是系统限制，不是 bug。
 - 文件页有两种态：`AppState.browseAll`（全部挂载聚合根）与挂载内目录树。
   新增页面级交互时先想清楚在哪个态生效。
 - **移动端字号**：Android 上 `MaterialApp.builder` 把文本缩放下限抬到 1.2

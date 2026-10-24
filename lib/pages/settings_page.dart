@@ -40,7 +40,11 @@ class _SettingsPageState extends State<SettingsPage> {
   static String _kbpsText(int v) => v <= 0 ? '' : '$v';
 
   /// 默认下载目录的**描述**（真实路径由传输层算，且不可用时会自动回落）。
-  String get _defaultDownloadHint => Platform.isWindows ? '下载/Nimbo' : '应用文档目录/Nimbo';
+  String get _defaultDownloadHint {
+    if (Platform.isWindows) return '下载/Nimbo';
+    if (Platform.isAndroid) return '内部存储/Download/Nimbo';
+    return '应用文档目录/Nimbo';
+  }
 
   /// 选下载目录：只存路径，真正建目录/校验可写在传输层做
   /// （换机器、删目录、目录变文件都能自动回落到默认位置）。
@@ -85,19 +89,6 @@ class _SettingsPageState extends State<SettingsPage> {
         const Text('单一浅色主题：没有外观开关，减少两套配色的维护与测试成本',
             style: TextStyle(
                 fontSize: 10.5, fontWeight: FontWeight.w600, color: NimboColors.ink3)),
-        const SizedBox(height: 16),
-        SectionCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _Label('数据'),
-              const SizedBox(height: 10),
-              _row('数据目录', state.dataDirPath.isEmpty ? '—' : state.dataDirPath, mono: true),
-              _row('存储方式', state.portable ? '便携（随程序目录）' : '系统目录'),
-              _row('配置文件', 'userdata/prefs.json（不含任何密码）'),
-            ],
-          ),
-        ),
         const SizedBox(height: 10),
         SectionCard(
           child: Column(

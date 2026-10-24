@@ -80,6 +80,13 @@ jobs:
           echo "--- 校验 ---"
           grep -c 'android.permission.INTERNET' "$MANIFEST" || true
           grep -c 'usesCleartextTraffic' "$MANIFEST" || true
+          # 下载目录要落在公共 Download 下，Android ≤10 需要外部存储写权限。
+          # maxSdkVersion=29 让它不出现在 Android 11+ 的权限列表里（那边分区存储
+          # 直接写 /storage/emulated/0 会被拒，代码里会回落到应用私有目录）。
+          if ! grep -q 'WRITE_EXTERNAL_STORAGE' "$MANIFEST"; then
+            sed -i 's|^\(<manifest[^>]*>\)|\1\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="29"/>|' "$MANIFEST"
+          fi
+          grep -n 'EXTERNAL_STORAGE' "$MANIFEST" || true
       - name: raise compileSdk
         run: |
           # file_picker 8.x 仍声明 compileSdk 34，而 flutter_plugin_android_lifecycle

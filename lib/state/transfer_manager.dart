@@ -501,37 +501,57 @@ class TransferManager extends ChangeNotifier {
   }
 }
 
-/// 下载目录：优先用设置里指定的 [root]，否则 Windows 落在「下载/Nimbo」，
-/// Android 落在应用文档目录。
+/// 下载目录：优先用设置里指定的 [root]，否则按平台默认 ——
+/// Windows 落在用户「下载」目录、Android 落在**公共**下载目录。
 ///
-/// 指定目录不可用（被删、权限不足、路径变成了文件）时**静默回落**到默认目录：
-/// 用户换机器或手滑删了文件夹之后，下载还能继续，只是落回默认位置。
+/// 指定目录不可用（被删、权限不足、路径变成了文件）时**静默回落**：
+/// ① 用户目录 → ② 平台默认目录 → ③ 应用文档目录。
+/// Android 10+ 的分区存储下没有「所有文件访问」权限时写不了
+/// `/storage/emulated/0/Download`，写探针会发现并落到 ③，下载不会失败。
 Future<Directory> downloadDir({String root = ''}) async {
   final custom = root.trim();
   if (custom.isNotEmpty) {
-    try {
-      final dir = Directory(custom);
-      if (!dir.existsSync()) await dir.create(recursive: true);
-      // 写探针：exists 通过但不可写（只读盘 / 被策略限制）时也能提前发现。
-      final probe = File('${dir.path}${Platform.pathSeparator}.nimbo-write-test');
-      await probe.writeAsString('', flush: true);
-      await probe.delete();
-      return dir;
-    } catch (_) {
-      // 落到下面的默认目录
-    }
+    final dir = await _ensureWritableDir(custom);
+    if (dir != null) return dir;
   }
+
+  final preferred = _platformDownloadPath();
+  if (preferred != null) {
+    final dir = await _ensureWritableDir(preferred);
+    if (dir != null) return dir;
+  }
+
+  final base = await getApplicationDocumentsDirectory();
+  final fallback = Directory('${base.path}${Platform.pathSeparator}Nimbo');
+  return await _ensureWritableDir(fallback.path) ?? fallback;
+}
+
+/// 各平台的「下载」根目录（不含兜底）。返回 null 表示该平台没有约定位置。
+String? _platformDownloadPath() {
   if (Platform.isWindows) {
     final home = Platform.environment['USERPROFILE'];
-    if (home != null && home.isNotEmpty) {
-      final d = Directory('$home\\Downloads\\Nimbo');
-      if (!d.existsSync()) d.createSync(recursive: true);
-      return d;
-    }
+    if (home != null && home.isNotEmpty) return '$home\\Downloads\\Nimbo';
+    return null;
   }
-  final base = await getApplicationDocumentsDirectory();
-  final d = Directory('${base.path}${Platform.pathSeparator}Nimbo');
-  if (!d.existsSync()) d.createSync(recursive: true);
-  return d;
+  if (Platform.isAndroid) {
+    // 公共下载目录：文件管理器/微信/QQ 都能直接看到，比应用沙盒目录有用。
+    return '/storage/emulated/0/Download/Nimbo';
+  }
+  return null;
+}
+
+/// 建目录 + 写一个空探针：`exists` 会撒谎（存在但只读、或路径变成了文件），
+/// 真写一次才知道能不能落盘。不可用时返回 null。
+Future<Directory?> _ensureWritableDir(String path) async {
+  try {
+    final dir = Directory(path);
+    if (!dir.existsSync()) await dir.create(recursive: true);
+    final probe = File('${dir.path}${Platform.pathSeparator}.nimbo-write-test');
+    await probe.writeAsString('', flush: true);
+    await probe.delete();
+    return dir;
+  } catch (_) {
+    return null;
+  }
 }
 
