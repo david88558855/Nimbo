@@ -9,6 +9,7 @@ import 'package:xml/xml.dart';
 import '../core/format.dart';
 import '../core/limiter.dart';
 import '../core/models.dart';
+import '../core/upload_checkpoint.dart';
 import 'net.dart';
 import 'storage_driver.dart';
 
@@ -28,8 +29,14 @@ class WebDavDriver extends StorageDriver {
   @override
   Capability get caps => const Capability(space: true);
 
+  /// 下载靠 Range 续传；上传靠 `PUT` + `Content-Range` 续写。
+  /// 上传的续传是**探测式**的：服务器不支持部分写入时会静默退回整份重传
+  /// （见 [_putRange]），所以这个能力位不保证「一定能续」。
   @override
-  ResumeSupport get resume => ResumeSupport.download;
+  ResumeSupport get resume => ResumeSupport.both;
+
+  /// 上传中途用的临时名后缀。续传依赖它：远端这个文件的实际长度就是续传起点。
+  static const String _tempSuffix = '.nimbo-part';
 
   /// 大小：优先 HEAD（有的服务器把 HEAD 直接 405），失败回落 PROPFIND Depth:0。
   @override
@@ -280,46 +287,165 @@ class WebDavDriver extends StorageDriver {
   /// WebDAV 既没有标准的追加写，也不保证「PUT 到一半中断」会回滚，直接写正式名
   /// 会留下看起来正常、其实缺尾部的文件（比失败更糟）。写临时名后 MOVE 是
   /// 原子的，中断时正式路径上要么是旧文件，要么什么也没有。
-  /// 代价：同目录下会短暂出现 `*.nimbo-part`，异常退出时可能残留（下次同名上传会覆盖）。
+  /// 代价：同目录下会短暂出现 `*.nimbo-part`，异常退出时可能残留（下次同名上传会续传/覆盖）。
   @override
   Future<void> uploadFile(String localFile, String remotePath,
       {ProgressFn? onProgress, int resumeFrom = 0}) async {
     final file = File(localFile);
-    final length = await file.length();
-    final tempPath = '$remotePath.nimbo-part';
-    try {
-      final res = await _dio.put<dynamic>(
-        _uri(tempPath).toString(),
-        data: throttleStream(
-          file.openRead(),
-          TransferLimiter.instance.upload,
-        ),
-        options: Options(
-          headers: {'Content-Length': length, 'Content-Type': 'application/octet-stream'},
-        ),
-        onSendProgress: onProgress == null ? null : (sent, total) => onProgress(sent, length),
-      );
-      _check(res, '上传');
+    final stat = await file.stat();
+    final length = stat.size;
+    final mtime = stat.modified.millisecondsSinceEpoch;
+    final tempPath = '$remotePath$_tempSuffix';
 
-      final moved = await _dio.request<dynamic>(
-        _uri(tempPath).toString(),
-        options: Options(
-          method: 'MOVE',
-          headers: {'Destination': _uri(remotePath).toString(), 'Overwrite': 'T'},
-          validateStatus: (s) => s != null && s < 500,
-        ),
-      );
-      _check(moved, '重命名上传结果');
-    } catch (e) {
-      // 中断/失败：尽力清掉临时文件，正式路径保持原样。
-      try {
-        await _dio.delete<dynamic>(
-          _uri(tempPath).toString(),
-          options: Options(validateStatus: (s) => s != null && s < 500),
-        );
-      } catch (_) {}
-      rethrow;
+    // 先看看这个路径上一次的记录是否属于「同一个文件」（大小 + 修改时间）。
+    // 只有它匹配，才敢拿远端那个临时文件的前缀继续写。
+    final prior = await UploadCheckpointStore.load(mount.id, remotePath, length);
+    final sameFile = prior != null && prior.matches(length, mtime);
+
+    // 登记本次上传的指纹（后续续传靠它判断是不是同一个文件）。
+    await UploadCheckpointStore.save(
+      mount.id,
+      remotePath,
+      UploadCheckpoint(
+        length: length,
+        mtimeMs: mtime,
+        offset: prior != null && sameFile ? prior.offset : 0,
+      ),
+    );
+
+    // 续传起点一律实测：远端临时文件有多少字节，就从那里接着写。
+    var start = (resumeFrom > 0 && sameFile)
+        ? await uploadResumeOffset(localFile, remotePath, resumeFrom)
+        : 0;
+
+    if (start == 0 && sameFile && length > 0) {
+      // 临时文件已经完整（上次卡在 MOVE，或断开在最后一块）：不必重传。
+      final existing = await sizeOf(tempPath);
+      if (existing == length) {
+        await _moveTempToFinal(tempPath, remotePath);
+        await UploadCheckpointStore.remove(mount.id, remotePath);
+        onProgress?.call(length, length);
+        return;
+      }
     }
+
+    if (start > 0) {
+      final ok = await _putRange(file, tempPath, start, length, onProgress);
+      if (ok) {
+        await UploadCheckpointStore.save(
+          mount.id,
+          remotePath,
+          UploadCheckpoint(length: length, mtimeMs: mtime, offset: length),
+        );
+        await _moveTempToFinal(tempPath, remotePath);
+        await UploadCheckpointStore.remove(mount.id, remotePath);
+        return;
+      }
+      // 服务器不支持部分写入（或写了但总长度不对）：降级为整份重传。
+      // 临时文件会被下面的 PUT 覆盖写，不会拼出错位内容。
+      start = 0;
+    }
+
+    await _putWhole(file, tempPath, length, onProgress);
+    await _moveTempToFinal(tempPath, remotePath);
+    await UploadCheckpointStore.remove(mount.id, remotePath);
+  }
+
+  /// 上传续传起点：只在「同一个文件 + 远端临时文件确实有半截」时才续。
+  @override
+  Future<int> uploadResumeOffset(
+    String localFile,
+    String remotePath,
+    int resumeFrom,
+  ) async {
+    if (resumeFrom <= 0) return 0;
+    try {
+      final stat = await File(localFile).stat();
+      final local = stat.size;
+      if (local <= 0) return 0;
+      // 没有检查点 / 指纹不符：不认这个断点（避免拿别的文件的前缀来拼）。
+      final cp = await UploadCheckpointStore.load(mount.id, remotePath, local);
+      if (cp == null || !cp.matches(local, stat.modified.millisecondsSinceEpoch)) {
+        return 0;
+      }
+      final remote = await sizeOf('$remotePath$_tempSuffix');
+      if (remote <= 0 || remote >= local) return 0;
+      return remote;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// 整份上传到临时名（覆盖写，幂等）。
+  Future<void> _putWhole(
+    File file,
+    String tempPath,
+    int length,
+    ProgressFn? onProgress,
+  ) async {
+    final res = await _dio.put<dynamic>(
+      _uri(tempPath).toString(),
+      data: throttleStream(file.openRead(), TransferLimiter.instance.upload),
+      options: Options(
+        headers: {'Content-Length': length, 'Content-Type': 'application/octet-stream'},
+      ),
+      onSendProgress: onProgress == null ? null : (sent, total) => onProgress(sent, length),
+    );
+    _check(res, '上传');
+  }
+
+  /// 从 [start] 续写剩余字节：`PUT` + `Content-Range`（RFC 7231 的 partial PUT）。
+  ///
+  /// 返回 false 表示「这台服务器不支持部分写入」，调用方应整份重传。
+  /// 判定分两层，缺一不可：
+  /// - 明确的拒绝码（400/405/409/415/416/501）；
+  /// - **写完校验总长度**：有些服务器不报错、直接把这半段当成整份写进去，
+  ///   只看状态码会得到一个「长度不对但看起来成功」的文件。
+  Future<bool> _putRange(
+    File file,
+    String tempPath,
+    int start,
+    int length,
+    ProgressFn? onProgress,
+  ) async {
+    // 这里**不**捕获网络异常：抖动/中断要一路抛上去（任务转失败或暂停，
+    // 临时文件与断点留着），不能误判成「服务器不支持部分写入」而白传一遍。
+    final res = await _dio.put<dynamic>(
+      _uri(tempPath).toString(),
+      data: throttleStream(
+        file.openRead(start),
+        TransferLimiter.instance.upload,
+      ),
+      options: Options(
+        headers: {
+          'Content-Length': length - start,
+          'Content-Range': 'bytes $start-${length - 1}/$length',
+          'Content-Type': 'application/octet-stream',
+        },
+      ),
+      onSendProgress:
+          onProgress == null ? null : (sent, total) => onProgress(start + sent, length),
+    );
+    final code = res.statusCode ?? 0;
+    if (code == 400 || code == 405 || code == 409 || code == 415 || code == 416 || code == 501) {
+      return false;
+    }
+    if (code < 200 || code >= 300) _check(res, '续传上传');
+    // 部分写入没法靠状态码确认，只能量长度。
+    final size = await sizeOf(tempPath);
+    return size == length;
+  }
+
+  Future<void> _moveTempToFinal(String tempPath, String remotePath) async {
+    final moved = await _dio.request<dynamic>(
+      _uri(tempPath).toString(),
+      options: Options(
+        method: 'MOVE',
+        headers: {'Destination': _uri(remotePath).toString(), 'Overwrite': 'T'},
+        validateStatus: (s) => s != null && s < 500,
+      ),
+    );
+    _check(moved, '重命名上传结果');
   }
 
   @override

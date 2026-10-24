@@ -3,6 +3,7 @@ import 'package:nimbo/core/format.dart';
 import 'package:nimbo/core/limiter.dart';
 import 'package:nimbo/core/multipart_store.dart';
 import 'package:nimbo/core/models.dart';
+import 'package:nimbo/core/upload_checkpoint.dart';
 import 'package:nimbo/drivers/errors.dart';
 import 'package:nimbo/drivers/storage_driver.dart';
 
@@ -92,6 +93,29 @@ void main() {
     test('缺少 uploadId 的状态视为无效', () {
       expect(MultipartState.fromJson({'length': 1}), isNull);
       expect(MultipartState.fromJson({'uploadId': ''}), isNull);
+    });
+  });
+
+  group('WebDAV 上传断点', () {
+    test('序列化往返', () {
+      final cp = UploadCheckpoint(length: 42, offset: 17);
+      final restored = UploadCheckpoint.fromJson(cp.toJson());
+      expect(restored, isNotNull);
+      expect(restored!.length, 42);
+      expect(restored.offset, 17);
+    });
+
+    test('缺少长度或长度非法时视为无效', () {
+      // 断点必须和「文件总长度」绑定，否则会把两个不同文件拼在一起。
+      expect(UploadCheckpoint.fromJson({}), isNull);
+      expect(UploadCheckpoint.fromJson({'length': 0}), isNull);
+      expect(UploadCheckpoint.fromJson({'length': -1}), isNull);
+    });
+
+    test('offset 缺省为 0', () {
+      final cp = UploadCheckpoint.fromJson({'length': 10});
+      expect(cp, isNotNull);
+      expect(cp!.offset, 0);
     });
   });
 

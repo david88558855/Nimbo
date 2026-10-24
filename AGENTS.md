@@ -41,6 +41,9 @@ gh run view --job $JOB --log-failed | sed -e 's/\x1b\[[0-9;]*m//g' | grep -E "er
   `uploadResumeOffset()`——默认按远端 `sizeOf()` 复核，S3 覆写成按分片状态算。
 - S3 分片状态在 `userdata/multipart.json`，续传前**必须**先 `ListParts` 以服务端为准；
   失败不再 Abort（见 ADR-14）。
+- WebDAV 上传续传靠 `PUT` + `Content-Range`（partial PUT，非标准）。**写完必须量一次
+  总长度**才能判定服务器真的支持，否则会得到一个长度不对却「成功」的文件；
+  断点用「大小 + mtime」绑定文件，只记长度会让同名文件拼接出错位内容（见 ADR-17）。
 - `file_picker` 锁 8.x、`desktop_drop` 锁 0.8.x，两者互相牵制（`cross_file` 版本冲突），
   升级要同批改。
 - 每个传输任务独占一条连接；浏览会话与传输队列是两套连接，别合并。

@@ -87,7 +87,8 @@ git -c http.version=HTTP/1.1 ls-remote https://github.com/david88558855/Nimbo.gi
 **一句话现状**：五个协议都能真实读写，上传下载都能排队跑，代理对五个协议全部生效；
 大文件中断后能接着传（下载全协议；上传 FTP/SFTP/本地按远端大小续传，S3 分片按分片表续传）；
 限速、托盘、关闭到托盘、单实例、便携凭据、挂载编辑与单挂载测试连接都已可用；
-剩下的是 WebDAV 上传续传（协议无追加语义）、音视频/PDF 预览、FTPS、本地磁盘容量这几项。
+WebDAV 的上传也能续传（服务器支持 partial PUT 时从临时文件实测长度续写，不支持则自动整份重传）；
+剩下的是音视频/PDF 预览、FTPS、本地磁盘容量这几项。
 
 ---
 
@@ -198,7 +199,8 @@ downloadTo / uploadFile / mkdir / removeEntry / move / probe`，错误统一抛 
 | 容量展示 | `AppState.space` 在 `open()` 时读一次，文件页标题显示「N 项 · 大小 · 剩余」 |
 | 挂载测试连接 | 挂载页逐卡片「测试连接」，凭据取自已保存的安全存储（`testMountWithStoredPassword`），结果就地显示成功条目数或带建议的错误 |
 | 挂载编辑 | 复用 `AddMountDialog(existing:)`：字段预填、**密码留空表示不修改**、编辑时不允许换协议（凭据语义不同）；保存后若正在浏览该挂载会立刻重连 |
-| WebDAV 原子落盘 | 上传先写 `<name>.nimbo-part`，成功后 `MOVE` 成正式名；失败/中断尽力 `DELETE` 临时文件。正式路径上不会再出现「看起来完整其实缺尾部」的文件 |
+| WebDAV 原子落盘 | 上传先写 `<name>.nimbo-part`，成功后 `MOVE` 成正式名。正式路径上不会再出现「看起来完整其实缺尾部」的文件 |
+| WebDAV 上传续传 | **探测式**：中断后若服务器接受 `PUT` + `Content-Range`（SabreDAV / Apache mod_dav / Nextcloud 等），从临时文件的**实测长度**续写并校验总长度；服务器不支持（400/405/409/415/416/501）或写完长度对不上，就静默降级为整份重传。断点状态存 `userdata/uploads.json`，用「大小 + mtime」把断点绑到具体文件，防止同名同长度的另一个文件拿去拼接 |
 | WebDAV 基础路径 | 服务器地址里带路径（`https://host/dav`）不再被丢弃；`sizeOf` 在 HEAD 405/无长度时回落 `PROPFIND Depth:0` |
 | S3 分片续传 | `uploadId` + 已完成分片的 ETag 落盘 `userdata/multipart.json`（按 `mountId|key`，校验文件大小与分片大小，7 天过期）；续传前先 `ListParts` 以服务端为准，只补缺失分片；完成后删除状态 |
 | S3 分片并发 | 3 路并行 PUT；进度 = 已完成分片字节 + 在传分片已发送字节 |
@@ -222,6 +224,8 @@ lib/
     store.dart                 AppPaths（便携 userdata）、Prefs、SecureStore（系统凭据 + Windows 便携双写）
     transfer_store.dart        传输记录持久化（userdata/transfers.json，保留 60 条）
     multipart_store.dart       S3 分片上传状态（userdata/multipart.json，含 uploadId 与分片 ETag）
+    upload_checkpoint.dart     WebDAV 上传断点（userdata/uploads.json，大小 + mtime + offset）
+    json_store.dart            小 JSON 状态文件的串行化读-改-写 + 原子落盘（上面两个共用）
     limiter.dart               令牌桶限速（上传/下载各一个桶 + throttleStream）
     version.dart               版本号单一来源（kAppVersion / kAppVersionLabel）
   platform/                    ← 仅 Windows 生效，Android 上全部被 Platform.isWindows 挡掉
@@ -341,6 +345,16 @@ WebDAV 没有标准追加写，也不能保证中断回滚。直接 PUT 正式�
 默认实现保留原语义，S3 覆写成「查分片表算已完成字节」。这样 S3 才能真正续传，
 队列层也不再需要知道协议差异。
 
+**ADR-17 WebDAV 上传续传做成「探测 + 自校验 + 降级」**
+标准 WebDAV 没有追加写。`PUT` + `Content-Range` 属于 RFC 7231 的 partial PUT，
+实现程度因服务端而异（SabreDAV / Apache mod_dav / Nextcloud 支持，很多轻量实现直接
+400 或把半段当成整份写进去）。所以不能声明「支持上传续传」，而是三步：
+① 从远端临时文件的实测长度取起点；② 写完**量一次总长度**，不匹配即判定不支持；
+③ 不支持就整份重传（临时文件被覆盖写，不会拼出错位内容）。
+断点用「大小 + mtime」绑定到具体文件：只有 `length` 是不够的——同名同长度的另一个文件
+会拿别人的前缀拼出一个长度正确、内容错位的文件。代价：文件被 touch 过就失去续传资格，
+这是安全的失败方向。
+
 ---
 
 ## 5. 注意事项与已知坑（必读）
@@ -429,6 +443,14 @@ WebDAV 没有标准追加写，也不能保证中断回滚。直接 PUT 正式�
     或只拦截不 hide，都会出现「点了 × 窗口没了但托盘还在 / 托盘点了没反应」。
 30. **恢复的传输任务要用「挂载对象」而不是 id。** `TransferManager.restore(saved, mounts)`
     会把挂载登记进 `_mounts`；编辑挂载后要 `syncMount()`，否则任务会拿旧地址去连。
+31. **WebDAV 的 partial PUT 必须用「总长度」自校验。** 有些服务器对 `Content-Range`
+    不报错、直接把这半段当成整份写进去；只看状态码会得到一个长度不对却「成功」的文件。
+    `_putRange` 里的 `sizeOf(temp) == length` 是唯一可信的判据。
+32. **WebDAV 断点必须绑定「大小 + mtime」。** 只记长度会让同名同长度的另一个文件
+    拿别人的前缀拼接。文件被 touch 过会丢续传资格 —— 这是有意的失败方向。
+33. **WebDAV 中断不再删临时文件。** 以前失败就 `DELETE *.nimbo-part`，现在保留它作为
+    续传载体；代价是远端会留一个 `*.nimbo-part`，下次同名上传会续传/覆盖。
+    取消任务不会主动清理远端临时文件（与 S3 分片的处理一致）。
 
 ---
 
@@ -439,10 +461,9 @@ WebDAV 没有标准追加写，也不能保证中断回滚。直接 PUT 正式�
 | 1 | **预览扩展（音视频 / PDF）** | 现在只覆盖图片与文本；`media_kit`（音视频）与 `pdfx`（PDF）都要评估包体积与 Windows/Android 两端的 native 依赖 | 高 | `preview_page.dart`、`pubspec.yaml` |
 | 2 | **本地磁盘容量** | `dart:io` 没有取剩余空间的 API；`dart:ffi` 调 `GetDiskFreeSpaceExW` 可解，但要做错误兜底且只在 Windows 验证过 | 中 | 新增 `platform/disk_space.dart`、`local_driver.space()` |
 | 3 | **FTPS（AUTH TLS）** | 目前只有明文 FTP。`SecureSocket.secure(socket)` 能把隧道升级成 TLS，控制连接与数据连接各要升一次（`PROT P`） | 中 | `ftp_driver.dart` |
-| 4 | **WebDAV 上传续传** | 标准 WebDAV 无追加语义；只能走第三方分块扩展（如 `SabreDAV` 的 partial update）或放弃 | 高 | `webdav_driver.dart` |
-| 5 | **传输任务级限速** | 现在是全局桶；单任务限速需要每个任务一个桶，并在 `TransferTask` 里持久化 | 中 | `limiter.dart`、`transfer_manager.dart` |
-| 6 | **S3 分片状态的可视化清理** | 现在只能等 7 天过期；设置页给个「清理未完成的分片上传」按钮更直观（需要 `ListMultipartUploads`） | 低 | `multipart_store.dart`、`settings_page.dart` |
-| 7 | **FTPS/明文 FTP 文案** | `models.dart` 的 hint 已改为「明文 FTP」，实现 FTPS 后记得同步改回 | 低 | `models.dart` |
+| 4 | **传输任务级限速** | 现在是全局桶；单任务限速需要每个任务一个桶，并在 `TransferTask` 里持久化 | 中 | `limiter.dart`、`transfer_manager.dart` |
+| 5 | **S3 分片状态的可视化清理** | 现在只能等 7 天过期；设置页给个「清理未完成的分片上传」按钮更直观（需要 `ListMultipartUploads`） | 低 | `multipart_store.dart`、`settings_page.dart` |
+| 6 | **FTPS/明文 FTP 文案** | `models.dart` 的 hint 已改为「明文 FTP」，实现 FTPS 后记得同步改回 | 低 | `models.dart` |
 
 ## 7. 后续工作建议
 
@@ -496,6 +517,8 @@ WebDAV 没有标准追加写，也不能保证中断回滚。直接 PUT 正式�
 | **挂载测试连接** | 挂载页对某个挂载点「测试连接」 | 成功显示「根目录 N 项」；失败显示带建议的原因，且不影响已保存配置 |
 | **编辑挂载** | 挂载页「编辑」→ 只改显示名 → 保存 | 名称立即变；密码不用重输；正在浏览该挂载时自动重连 |
 | **WebDAV 原子上传** | 传大文件到 WebDAV，传一半暂停 | 正式文件不存在（或仍是旧版本）；目录里最多留一个 `*.nimbo-part` |
+| **WebDAV 上传续传（支持 partial PUT 的服务器）** | 传大文件到 SabreDAV/Nextcloud，60% 暂停 → 继续 | 从 `*.nimbo-part` 的实测长度续写；完成后 `MOVE` 成正式名，内容完整 |
+| **WebDAV 上传续传（不支持的服务器）** | 同上，但服务器返回 400/501 或忽略 `Content-Range` | 进度回到 0、整份重传；结束文件内容正确（不出现错位文件） |
 | **S3 分片续传** | 传 100 MB+ 到 S3，60% 时暂停 → 继续 | 从已完成分片处继续，不从头传；`userdata/multipart.json` 有对应记录，完成后消失 |
 | **S3 分片并发** | 传 200 MB 到 MinIO | 3 条 PUT 并行（看服务端日志/网络），总时长明显短于串行 |
 | **错误文案** | 把某个挂载端口改成错的 → 打开 | 提示里除了协议错误，还有一句「检查主机与端口是否可达」这类建议 |

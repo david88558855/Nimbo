@@ -1,7 +1,4 @@
-import 'dart:convert';
-import 'dart:io';
-
-import 'store.dart';
+import 'json_store.dart';
 
 /// 一次未完成的 S3 分片上传。
 ///
@@ -62,43 +59,10 @@ class MultipartState {
 class MultipartStore {
   static const int maxAgeDays = 7;
 
-  /// 所有读写串行化：分片并发上传时会同时保存状态，交错写会互相覆盖。
-  static Future<void> _chain = Future<void>.value();
-
-  static Future<T> _serialize<T>(Future<T> Function() action) {
-    final next = _chain.then((_) => action());
-    _chain = next.then((_) {}, onError: (Object _) {});
-    return next;
-  }
-
-  static Future<File> _file() async {
-    final dir = await AppPaths.dataDir();
-    return File('${dir.path}${Platform.pathSeparator}multipart.json');
-  }
+  /// 读写串行化与原子落盘都交给 [JsonStore]。
+  static final JsonStore _store = JsonStore('multipart.json');
 
   static String _key(String mountId, String key) => '$mountId|$key';
-
-  static Future<Map<String, dynamic>> _readAll(File f) async {
-    try {
-      if (!f.existsSync()) return <String, dynamic>{};
-      final raw = jsonDecode(await f.readAsString());
-      if (raw is Map) return raw.cast<String, dynamic>();
-      return <String, dynamic>{};
-    } catch (_) {
-      return <String, dynamic>{};
-    }
-  }
-
-  static Future<void> _writeAll(File f, Map<String, dynamic> all) async {
-    final tmp = File('${f.path}.tmp');
-    await tmp.writeAsString(jsonEncode(all));
-    try {
-      await tmp.rename(f.path);
-    } on FileSystemException {
-      await f.writeAsString(await tmp.readAsString());
-      await tmp.delete();
-    }
-  }
 
   /// 读取仍然适用的状态：文件大小与分片大小都对不上就当作没有。
   static Future<MultipartState?> load(
@@ -107,35 +71,48 @@ class MultipartStore {
     int length,
     int partSize,
   ) =>
-      _serialize(() async {
-        final f = await _file();
-        final all = await _readAll(f);
-        final raw = all[_key(mountId, key)];
+      _store.update<MultipartState?>((all) {
+        final k = _key(mountId, key);
+        final raw = all[k];
         if (raw is! Map) return null;
         final state = MultipartState.fromJson(raw.cast<String, dynamic>());
-        if (state == null) return null;
+        if (state == null) {
+          all.remove(k);
+          return null;
+        }
         final expired =
             DateTime.now().difference(state.updatedAt).inDays > maxAgeDays;
         if (expired || state.length != length || state.partSize != partSize) {
-          all.remove(_key(mountId, key));
-          await _writeAll(f, all);
+          all.remove(k);
           return null;
         }
         return state;
       });
 
-  static Future<void> save(String mountId, String key, MultipartState state) =>
-      _serialize(() async {
-        final f = await _file();
-        final all = await _readAll(f);
+  /// 落盘失败不影响传输本身：状态只是「下次能快一点」的加速器。
+  static Future<void> save(String mountId, String key, MultipartState state) async {
+    try {
+      await _store.update<void>((all) {
         all[_key(mountId, key)] = state.toJson();
-        await _writeAll(f, all);
       });
+    } catch (_) {}
+  }
 
-  static Future<void> remove(String mountId, String key) => _serialize(() async {
-        final f = await _file();
-        final all = await _readAll(f);
-        if (all.remove(_key(mountId, key)) == null) return;
-        await _writeAll(f, all);
+  static Future<void> remove(String mountId, String key) async {
+    try {
+      await _store.update<void>((all) {
+        all.remove(_key(mountId, key));
       });
+    } catch (_) {}
+  }
+
+  /// 删挂载时清掉该挂载的全部状态：只删本地记录，服务端的未完成分片交给
+  /// lifecycle 回收（主动 Abort 反而会让已传完的分片白费）。
+  static Future<void> dropMount(String mountId) async {
+    try {
+      await _store.update<void>((all) {
+        all.removeWhere((k, _) => k.startsWith('$mountId|'));
+      });
+    } catch (_) {}
+  }
 }

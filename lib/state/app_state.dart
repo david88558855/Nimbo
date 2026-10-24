@@ -6,8 +6,10 @@ import 'package:flutter/foundation.dart';
 import '../core/format.dart';
 import '../core/limiter.dart';
 import '../core/models.dart';
+import '../core/multipart_store.dart';
 import '../core/store.dart';
 import '../core/transfer_store.dart';
+import '../core/upload_checkpoint.dart';
 import '../drivers/errors.dart';
 import '../drivers/factory.dart';
 import '../drivers/storage_driver.dart';
@@ -351,6 +353,10 @@ class AppState extends ChangeNotifier {
     _prefs.mounts.removeWhere((m) => m.id == mount.id);
     await SecureStore.delete(mount.id);
     transfers.dropMount(mount.id);
+    // 顺手清掉这个挂载的中间状态（S3 分片表 / WebDAV 上传断点），
+    // 否则删了挂载还留着一堆再也用不上的记录。
+    unawaited(MultipartStore.dropMount(mount.id));
+    unawaited(UploadCheckpointStore.dropMount(mount.id));
     if (_prefs.activeMountId == mount.id) {
       _prefs.activeMountId = _prefs.mounts.isEmpty ? null : _prefs.mounts.first.id;
     }
