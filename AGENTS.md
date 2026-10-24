@@ -90,6 +90,10 @@ gh run view --job $JOB --log-failed | sed -e 's/\x1b\[[0-9;]*m//g' | grep -E "er
 - `exit(0)` 不走 `dispose()`：所有彻底退出的路径都要先 `onBeforeExit()` 落盘。
 - 菜单点击回调跑在原生 `TrackPopupMenu` 栈里，退出前要 `await 60ms` 再
   `trayManager.destroy()`，否则会释放 `Menu::Open()` 正在用的对象。
+- **界面字体**：Windows 用内置 Noto Sans SC（`pubspec.yaml` 的 `fonts:` + `assets/fonts/`），
+  字族名是 `NotoSansSC`。换字体改 `theme.dart` 的 `kNimboWinFontFamily`，
+  且**必须同时改 `appBarTheme.titleTextStyle` 与 `tooltipTheme.textStyle`**（显式样式不继承
+  `textTheme`）。别写系统字体名：Windows 没预装思源黑体，会静默回落成雅黑。
 - Windows 产物依赖 `cnativeapi.dll` / `window_manager_plugin.dll` 等，**必须整包分发**。
 - 便携数据全在 exe 同级 `userdata/`：`prefs.json`、`transfers.json`、`multipart.json`、
   `credentials.dat`。

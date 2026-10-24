@@ -87,6 +87,27 @@ class NimboRadius {
 // 移动端字号与尺寸
 // ---------------------------------------------------------------------------
 
+/// Windows 端界面字族：思源黑体 / Noto Sans SC，随包内置（`assets/fonts/`）。
+///
+/// **Windows 不预装这个字族**（Win10/11 只有微软雅黑、等线、宋体）。只写字体名
+/// 而不打包字体，在用户机器上会静默回落到雅黑 —— 看起来就像「没换」。
+const String kNimboWinFontFamily = 'NotoSansSC';
+
+/// 内置字体缺字时的系统回落链（生僻字、emoji、特殊符号）。
+const List<String> kNimboWinFontFallback = <String>[
+  'Microsoft YaHei UI',
+  'Microsoft YaHei',
+  'Segoe UI',
+];
+
+/// 当前平台该用的字族；非 Windows 返回 null，表示沿用 Flutter 默认字体。
+String? nimboFontFamily() =>
+    defaultTargetPlatform == TargetPlatform.windows ? kNimboWinFontFamily : null;
+
+/// 与 [nimboFontFamily] 配套的回落链，非 Windows 返回 null。
+List<String>? nimboFontFallback() =>
+    defaultTargetPlatform == TargetPlatform.windows ? kNimboWinFontFallback : null;
+
 /// Android 上字号与控件尺寸的统一放大系数。
 ///
 /// 设计稿是按桌面 1:1 排的：正文 10.5–12.5、说明文字 9–10、按钮 11.5。同一组数值
@@ -126,26 +147,39 @@ ThemeData buildNimboTheme() {
     onSurface: NimboColors.ink,
     error: NimboColors.danger,
   );
+  // 字族：Windows 用内置的思源黑体；其它平台保持 Flutter 默认。
+  final family = nimboFontFamily();
+  final fallback = nimboFontFallback();
+  // 组件主题里的 titleTextStyle / textStyle 是**显式**样式，不会继承 textTheme，
+  // 必须自己带上字族，否则 AppBar 标题、Tooltip 会继续用默认字体。
+  TextStyle? withFont(TextStyle? style) =>
+      style?.copyWith(fontFamily: family, fontFamilyFallback: fallback);
+
   return ThemeData(
     useMaterial3: true,
     colorScheme: scheme,
+    // fontFamily 会写进 textTheme / typography；fontFamilyFallback 负责内置字体缺字
+    // （生僻字、emoji、符号）时按顺序回落到系统字体。
+    fontFamily: family,
+    fontFamilyFallback: fallback,
     scaffoldBackgroundColor: NimboColors.bg,
     canvasColor: NimboColors.bg,
     dividerColor: NimboColors.line,
     splashFactory: NoSplash.splashFactory,
     highlightColor: Colors.transparent,
-    appBarTheme: const AppBarTheme(
+    appBarTheme: AppBarTheme(
       backgroundColor: NimboColors.bg,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       centerTitle: false,
       toolbarHeight: 52,
-      titleTextStyle: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: NimboColors.ink),
-      iconTheme: IconThemeData(color: NimboColors.ink2, size: 20),
+      titleTextStyle: withFont(
+          const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: NimboColors.ink)),
+      iconTheme: const IconThemeData(color: NimboColors.ink2, size: 20),
     ),
     tooltipTheme: TooltipThemeData(
       decoration: BoxDecoration(color: NimboColors.ink, borderRadius: BorderRadius.circular(7)),
-      textStyle: const TextStyle(fontSize: 11, color: Colors.white),
+      textStyle: withFont(const TextStyle(fontSize: 11, color: Colors.white)),
     ),
   );
 }

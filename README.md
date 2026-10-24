@@ -38,7 +38,7 @@ lib/
   pages/                 桌面三栏 / 移动底部 Tab 的自适应外壳与各页面
   state/                 app_state（浏览会话 + 聚合根）+ transfer_manager（传输队列）
   platform/              仅 Windows：托盘（desktop_shell）+ 单实例（single_instance）
-assets/                  托盘图标（tray.ico / tray.png）
+assets/                  托盘图标（tray.ico / tray.png）+ fonts/（Noto Sans SC 界面字体）
 design/                  设计稿（单文件 HTML）
 docs/                    技术分析
 ```
@@ -80,6 +80,8 @@ docs/                    技术分析
 
 - 添加挂载：S3 / WebDAV **端口写在地址里**（`https://host:8443/dav`），表单实时解析出「端口 + 基础路径」；
   FTP / SFTP 仍用独立端口框
+- 字体：Windows 端使用内置的思源黑体 / Noto Sans SC（`assets/fonts`，SIL OFL 1.1），
+  缺字按 微软雅黑 → Segoe UI 回落；其它平台沿用 Flutter 默认字体
 - 桌面：236 导航三栏（挂载切换器、导航、挂载列表、当前挂载的代理状态）+ 文件区 + 详情栏 + 底部传输条
 - 移动：底部四 Tab；文件页头部按宽度收敛按钮，避免窄屏溢出；
   **Android 整体字号放大 1.2 倍**（`uiSize()` 同步放大控件高度与图标，布局加固见交接文档 2.10）

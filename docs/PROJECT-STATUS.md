@@ -339,6 +339,44 @@ S3 与 WebDAV 都跑在 HTTP 上，端口本来就是 URL 的一部分。原来�
 - 目录被删 / 没权限 / 路径变成文件时不再报错，而是回落默认目录并照常下载
   （写探针失败即判定不可用）。
 
+### 2.15 Windows 界面字体：思源黑体 / Noto Sans SC（随包内置）
+
+**可用性判断（先说结论）**：Windows **不预装**思源黑体 / Noto Sans SC
+（Win10/11 自带的是微软雅黑 `Microsoft YaHei UI`、等线 `DengXian`、宋体 `SimSun`）。
+所以「只填字体名」这条路在绝大多数用户机器上会静默回落到雅黑，等于没换。
+要保证生效只有一条路：**把字体文件打进应用**。
+
+| 项 | 取值 |
+|---|---|
+| 字族名 | `NotoSansSC`（pubspec 里声明的 family，不是系统字体名） |
+| 内置字重 | 400 / 500 / 700（`assets/fonts/*.otf`，各约 8 MB，共 24 MB） |
+| 许可证 | SIL OFL 1.1，原文在 `assets/fonts/OFL.txt`（OFL 要求随字体分发） |
+| 生效范围 | 仅 Windows（`defaultTargetPlatform == windows`）；Android/macOS 保持 Flutter 默认 |
+| 回落链 | `Microsoft YaHei UI` → `Microsoft YaHei` → `Segoe UI`（缺字 / emoji 时兜底） |
+
+**改动位置**
+
+| 位置 | 改了什么 |
+|---|---|
+| `pubspec.yaml` | `flutter.fonts` 声明 `NotoSansSC` 三个字重（原来只有 `assets:`，没有 `fonts:`，所以之前能改的只有系统字体名） |
+| `lib/app/theme.dart` | 新增 `kNimboWinFontFamily` / `kNimboWinFontFallback` / `nimboFontFamily()` / `nimboFontFallback()`；`buildNimboTheme()` 把 `fontFamily`、`fontFamilyFallback` 传给 `ThemeData` |
+| `lib/app/theme.dart` 组件主题 | `appBarTheme.titleTextStyle` 与 `tooltipTheme.textStyle` 是**显式**样式，不继承 `textTheme`，用 `withFont()` 手动补上字族——否则标题与提示会继续用默认字体 |
+| 各页面的 `TextStyle(fontSize: …)` | **不用改**：`inherit` 默认 true，`Text` 会把它们合并到主题给出的 `DefaultTextStyle`，字族自动跟随 |
+
+**为什么只声明三个字重**：项目里用到 w400 / w500 / w600 / w700 / w800。全量 5 个字重约 40 MB，
+塞进包里不划算；缺的字重由 Flutter 按最接近的匹配（w600 → 500 或 700，w800 → 700）。
+代价是 w600 与 w700 视觉上会趋同，层次主要靠字号而不是字重区分。
+
+**体积代价**：EXE 与 APK 各增加约 24 MB（Flutter 无法按平台声明 assets，Android 也会打进去）。
+要省可以只留 400/700（16 MB，但 w600 会全变粗），或换更窄的字族。
+
+**验证方式**
+1. Windows 启动，看「独立代理」「添加挂载」等中文——应为思源黑体的收笔（横竖末端平切、
+   结构更方），与雅黑（末端略圆、字形更窄）肉眼可分辨；
+2. 文件页 → 详情栏看任意中文文件名，确认无豆腐块；
+3. 生僻字 / emoji：文件名改成 `𠮷🙂测试.txt`，能正常显示说明回落链生效；
+4. 布局：对比改前截图，行高与换行不应变化（字体 metric 不同，极窄屏可能出现新的换行）。
+
 ---
 
 ## 3. 文件地图
@@ -389,6 +427,7 @@ lib/
 test/core_logic_test.dart    纯逻辑单测（路径 / 令牌桶 / 分片状态 / 错误文案 / 进度）
 assets/
   tray.ico / tray.png          Windows 托盘图标（256px 圆角 N，脚本生成，无需设计源文件）
+  fonts/NotoSansSC-*.otf       Windows 界面字体（思源黑体 400/500/700），OFL.txt 为许可证
 design/index.html              设计稿
 docs/s3-addressing-analysis.md S3 寻址模式与第三方兼容性分析（含 Endpoint 子路径）
 docs/tech-stack-audit.md      客户端技术栈审查（是否完全使用 Flutter + 风险点）
@@ -537,6 +576,12 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
 建目录 + 写一个空探针文件，失败就回落到默认目录。这样下载永远能进行，
 只是位置可能不是用户以为的那个——比失败可接受。
 
+**ADR-25 界面字体随包内置，不用系统字体名**
+「把默认字体换成思源黑体」有两条路：写系统字体名（零体积，但 Windows 不预装该字族，
+未安装时静默回落，用户看到的还是雅黑）与内置字体文件（+24 MB，任何机器一致）。
+选内置：这种「看起来没变」的失败最难排查，也不该让用户为了用客户端去装字体。
+代价是包体变大、OFL 许可证必须随包分发；只对 Windows 生效，避免动到 Android 的字号体系。
+
 ---
 
 ## 5. 注意事项与已知坑（必读）
@@ -667,7 +712,14 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
     才保留历史值；新增设置项如果要改默认值，请照这个模式加 pinned 标记。
 48. **下载目录只对新任务生效。** `localPath` 在入队时算好并落盘，改设置不会迁移
     已在队列里的任务；想让新目录生效，下载新文件即可。
-49. **WebDAV 中断不再删临时文件。** 以前失败就 `DELETE *.nimbo-part`，现在保留它作为
+49. **字体名 ≠ 字体可用。** `fontFamily: 'Source Han Sans SC'` 这种写法在没装该字体的
+    Windows 上不报错也不警告，只静默回落。本项目用内置 family `NotoSansSC`；
+    新增文本样式时**不要**手写别的 family，否则那一处会跳回默认字体。
+50. **组件主题的 `textStyle / titleTextStyle` 不继承 `textTheme`。** 换字体必须一起改，
+    否则「大部分地方变了、AppBar 标题和 Tooltip 没变」，这种半生效最难发现。
+51. **`assets/fonts` 会同时进 Windows 包与 APK**（Flutter 没有按平台声明 assets 的能力），
+    共约 24 MB。要压包体先动这里，别动 `tray.ico`（托盘图标必须随包）。
+52. **WebDAV 中断不再删临时文件。** 以前失败就 `DELETE *.nimbo-part`，现在保留它作为
     续传载体；代价是远端会留一个 `*.nimbo-part`，下次同名上传会续传/覆盖。
     取消任务不会主动清理远端临时文件（与 S3 分片的处理一致）。
 
@@ -748,6 +800,9 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
 | **非法地址校验** | 地址填 `ftp://host` 或 `https://`，点「测试连接」与「保存」 | 两处给出同一条可读错误（只支持 http/https / 缺主机名），不会保存 |
 | **FTP/SFTP 端口框** | 添加 FTP，端口填 `abc` / `99999` | 提示「1–65535」；改成空则用 21/22，正常保存 |
 | **编辑老配置不丢端口** | 用旧版本保存过一个 `host=example.com / port=8443` 的 WebDAV 挂载，再打开编辑 | 地址自动变成 `https://example.com:8443`，保存后仍能连 |
+| **界面字体** | Windows 启动后看「独立代理」「添加挂载」 | 字形是思源黑体（横竖末端平切、结构更方），不是雅黑；标题/正文/说明层次仍在 |
+| **字体回落** | 文件名改成 `𠮷🙂测试.txt` 再浏览 | 不出现豆腐块（走 `Microsoft YaHei UI` / `Segoe UI` 回落） |
+| **字体不改变布局** | 对比换字体前后的文件列表与详情栏 | 行高与换行位置基本一致，表格列宽没被撑开 |
 | **只读开关已移除** | 打开添加/编辑挂载弹窗 | 表单里没有「只读挂载」；文件页的上传/新建/删除/重命名/拖拽全部可用，不再有只读门禁 |
 | **弹窗底部提示已移除** | 同上，看弹窗底部 | 只剩「测试连接 / 保存」按钮，没有「凭据只写入系统安全存储…」那段文字 |
 | **下载目录** | 设置 → 下载目录 → 选择 `D://Media` → 下载一个文件 | 文件落在 `D://Media`；重启后设置仍在；把该目录删掉再下载 → 自动回落到 `下载/Nimbo`，不报错 |

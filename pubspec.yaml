@@ -31,3 +31,16 @@ flutter:
   assets:
     - assets/tray.ico
     - assets/tray.png
+  # Windows 端界面字体：思源黑体 / Noto Sans SC（SIL OFL 1.1，见 assets/fonts/OFL.txt）。
+  # Windows 不预装这个字族，所以必须随包内置，否则「指定字体」在用户机器上等于没生效。
+  # 只声明 400/500/700 三个字重：本项目的字号体系用 w400 / w500 / w600 / w700 / w800，
+  # 缺字重时 Flutter 会按最接近的字重匹配（w600 落到 500 或 700）。
+  fonts:
+    - family: NotoSansSC
+      fonts:
+        - asset: assets/fonts/NotoSansSC-Regular.otf
+          weight: 400
+        - asset: assets/fonts/NotoSansSC-Medium.otf
+          weight: 500
+        - asset: assets/fonts/NotoSansSC-Bold.otf
+          weight: 700
