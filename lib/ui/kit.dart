@@ -40,9 +40,9 @@ class NimboButton extends StatelessWidget {
         bg = Colors.transparent;
         fg = NimboColors.ink2;
       case NimboButtonKind.danger:
-        bg = const Color(0xFFFFF1F3);
+        // 危险操作**常态就带浅红底**（不再靠描边区分），悬停由 InkWell 的覆盖色提亮。
+        bg = const Color(0xFFFCEBEB);
         fg = NimboColors.dangerInk;
-        border = Border.all(color: const Color(0xFFF8C9D2));
     }
     // 高度必须和文字一起放大，否则固定 30 的按钮会把放大后的文字裁掉。
     final boxHeight = uiSize(height);

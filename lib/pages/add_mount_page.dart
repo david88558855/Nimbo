@@ -44,13 +44,30 @@ class _AddMountDialogState extends State<AddMountDialog> {
   String? _testResult;
   bool _testOk = false;
 
+  /// 用户是否手动改过「显示名称」。没改过时，名称跟着地址/路径/bucket 自动更新；
+  /// 一旦手动改过就完全由用户决定，不再被覆盖。
+  bool _nameTouched = false;
+
+  /// 程序自己写 controller 时置位，避免把自己的赋值当成「用户输入」。
+  bool _syncingName = false;
+
   bool get _isEdit => widget.existing != null;
 
   @override
   void initState() {
     super.initState();
     final m = widget.existing;
-    if (m == null) return;
+    if (m == null) {
+      // 新建：给一个由当前协议推导的默认名，并让它在用户输入地址时自动跟着变。
+      _applySuggestedName();
+      _name.addListener(_onNameTyped);
+      _host.addListener(_refreshSuggestedName);
+      _bucket.addListener(_refreshSuggestedName);
+      _rootPath.addListener(_refreshSuggestedName);
+      return;
+    }
+    // 编辑：名称是用户既有的值，不参与自动生成。
+    _nameTouched = true;
     _protocol = m.protocol;
     _name.text = m.name;
     // 端口归入地址的协议（S3 / WebDAV）：老配置若把端口存在独立字段里，
@@ -107,20 +124,85 @@ class _AddMountDialogState extends State<AddMountDialog> {
       } else {
         _port.clear();
       }
-      if (p == MountProtocol.local && _name.text == '新挂载') {
-        _name.text = '本地目录';
-      }
-      if (p == MountProtocol.s3 && _name.text == '新挂载') {
-        _name.text = '对象存储';
-      }
+      // 名称没被手动改过就按新协议重新推导（默认值跟着协议/地址走）。
+      _applySuggestedName();
     });
   }
 
   bool get _isAnonymous => _protocol == MountProtocol.ftp && _anonymous;
 
+  // ---------- 显示名称 ----------
+
+  void _onNameTyped() {
+    if (_syncingName) return;
+    _nameTouched = true;
+  }
+
+  void _refreshSuggestedName() {
+    if (_nameTouched) return;
+    _applySuggestedName();
+  }
+
+  /// 把默认名称写进输入框（不标记为「用户改过」）。
+  void _applySuggestedName() {
+    final next = _suggestedName();
+    if (_name.text == next) return;
+    _syncingName = true;
+    _name.text = next;
+    _syncingName = false;
+  }
+
+  /// 默认显示名称：**跟着用户已经填了什么走**，而不是写死一个「新挂载」。
+  ///
+  /// - 本地：目录最后一段（`D://Media` → `Media`；盘符根 → `本地磁盘 D`）
+  /// - S3：优先 bucket，其次主机名
+  /// - WebDAV / FTP / SFTP：主机名（去掉 `http(s)://`、端口与路径）
+  /// - 什么都没有：`<协议> 挂载`
+  String _suggestedName() {
+    switch (_protocol) {
+      case MountProtocol.local:
+        final parts = _rootPath.text
+            .trim()
+            .split(RegExp(r'[\\/]'))
+            .where((e) => e.trim().isNotEmpty)
+            .toList();
+        if (parts.isEmpty) return '本地目录';
+        final tail = parts.last.trim();
+        // `D:` 这种盘符根没有目录名，用「本地磁盘 D」
+        if (tail.length == 2 && tail.endsWith(':')) {
+          return '本地磁盘 ${tail[0].toUpperCase()}';
+        }
+        return tail;
+      case MountProtocol.s3:
+        final bucket = _bucket.text.trim();
+        if (bucket.isNotEmpty) return bucket;
+        final host = _hostLabel();
+        return host.isEmpty ? 'S3 存储' : host;
+      default:
+        final host = _hostLabel();
+        return host.isEmpty ? '${_protocol.label} 挂载' : host;
+    }
+  }
+
+  /// 从地址里取主机名；解析不了就原样返回（用户可能还在输入过程中）。
+  String _hostLabel() {
+    final raw = _host.text.trim();
+    if (raw.isEmpty) return '';
+    try {
+      return parseEndpoint(raw).host;
+    } on FormatException {
+      return raw;
+    }
+  }
+
+  /// 保存/测试前的兜底：名称为空就补上默认值（保证「必填」不会误拦）。
+  void _ensureName() {
+    if (_name.text.trim().isEmpty) _applySuggestedName();
+  }
+
   Mount _buildMount() => Mount(
         id: widget.existing?.id ?? 'm${DateTime.now().millisecondsSinceEpoch}',
-        name: _name.text.trim().isEmpty ? _protocol.label : _name.text.trim(),
+        name: _name.text.trim().isEmpty ? _suggestedName() : _name.text.trim(),
         protocol: _protocol,
         host: _host.text.trim(),
         // S3 / WebDAV 的端口属于地址，mount.port 固定存 0（不落残留字段）；
@@ -145,6 +227,7 @@ class _AddMountDialogState extends State<AddMountDialog> {
       );
 
   Future<void> _test() async {
+    _ensureName();
     final mount = _buildMount();
     final invalid = _validationError(mount);
     if (invalid != null) {
@@ -186,6 +269,8 @@ class _AddMountDialogState extends State<AddMountDialog> {
   /// 分开写会出现「测试通过、保存报错」这种前后不一致——端口校验尤其容易踩，
   /// 所以错误信息统一从这里返回，界面只负责展示。
   String? _validationError(Mount mount) {
+    // 名称有默认值，正常情况下不会为空；这里只防「手动清空后直接保存」。
+    if (mount.name.trim().isEmpty) return '请填写显示名称';
     if (mount.protocol == MountProtocol.local) {
       return mount.rootPath.trim().isEmpty ? '请填写本地目录路径' : null;
     }
@@ -216,6 +301,7 @@ class _AddMountDialogState extends State<AddMountDialog> {
   }
 
   Future<void> _save() async {
+    _ensureName();
     final mount = _buildMount();
     final invalid = _validationError(mount);
     if (invalid != null) {
@@ -477,7 +563,7 @@ class _AddMountDialogState extends State<AddMountDialog> {
     if (_protocol == MountProtocol.local) {
       return Column(
         children: [
-          _field('显示名称', _name),
+          _field('显示名称', _name, hint: '留空按地址自动生成'),
           _field('目录路径', _rootPath, hint: 'D:\\Media 或 /storage/emulated/0/Download'),
           const SizedBox(height: 4),
           const Text('提示：Windows 可先把 SMB 共享映射成盘符，再从这里按本地目录接入。',
@@ -493,7 +579,7 @@ class _AddMountDialogState extends State<AddMountDialog> {
           children: [
             Expanded(
                 flex: _protocol.portInHost ? 1 : 3,
-                child: _field('显示名称', _name)),
+                child: _field('显示名称', _name, hint: '留空按地址自动生成')),
             // S3 / WebDAV 的端口属于地址，不再给独立端口框（避免与地址里的端口打架）。
             if (!_protocol.portInHost) ...[
               const SizedBox(width: 10),
