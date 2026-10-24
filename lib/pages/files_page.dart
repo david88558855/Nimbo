@@ -360,6 +360,15 @@ class _Header extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
+              // 返回上层：**只在桌面端**出现（移动端有系统返回键与侧滑返回，且标题行
+              // 宽度本来就紧张，多加一个按钮会把「上传 / 新建」挤出去）。
+              // 停在「全部挂载」聚合根时没有上层，置灰不可点。
+              if (!compact) ...[
+                NimboButton('返回上层',
+                    icon: Icons.arrow_upward_rounded,
+                    onPressed: state.browseAll ? null : () => state.up()),
+                const SizedBox(width: 7),
+              ],
               _UploadButton(state: state),
               const SizedBox(width: 7),
               NimboButton(compact ? '新建' : '新建文件夹',
