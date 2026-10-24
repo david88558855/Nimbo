@@ -324,7 +324,9 @@ class _Header extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: 3),
                 child: Text(
-                  '${state.entries.length} 项 · ${humanBytes(totalSize)}',
+                  // 容量只在协议支持时出现（WebDAV quota / SFTP statvfs），否则省略。
+                  '${state.entries.length} 项 · ${humanBytes(totalSize)}'
+                  '${state.space == null ? '' : ' · 剩余 ${humanBytes(state.space!.free)}'}',
                   style: const TextStyle(
                       fontSize: 10.5, fontWeight: FontWeight.w600, color: NimboColors.ink3),
                 ),

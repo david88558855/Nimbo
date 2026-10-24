@@ -7,6 +7,7 @@ import 'package:dio/io.dart';
 import 'package:xml/xml.dart';
 
 import '../core/format.dart';
+import '../core/limiter.dart';
 import '../core/models.dart';
 import 'net.dart';
 import 'storage_driver.dart';
@@ -30,14 +31,35 @@ class WebDavDriver extends StorageDriver {
   @override
   ResumeSupport get resume => ResumeSupport.download;
 
+  /// 大小：优先 HEAD（有的服务器把 HEAD 直接 405），失败回落 PROPFIND Depth:0。
   @override
   Future<int> sizeOf(String path) async {
     try {
       final res = await _dio.head<dynamic>(_uri(path).toString());
-      return int.tryParse(res.headers.value('content-length') ?? '') ?? -1;
-    } catch (_) {
-      return -1;
-    }
+      final len = int.tryParse(res.headers.value('content-length') ?? '');
+      if (res.statusCode != null && res.statusCode! < 300 && len != null) return len;
+    } catch (_) {}
+    try {
+      final res = await _dio.request<dynamic>(
+        _uri(path).toString(),
+        data: _propfindBody,
+        options: Options(
+          method: 'PROPFIND',
+          headers: {'Depth': '0', 'Content-Type': 'application/xml; charset=utf-8'},
+          responseType: ResponseType.plain,
+          validateStatus: (s) => s != null && s < 500,
+        ),
+      );
+      if ((res.statusCode ?? 0) >= 300) return -1;
+      final raw = res.data;
+      final text = raw is String ? raw : utf8.decode(raw as List<int>, allowMalformed: true);
+      for (final el in XmlDocument.parse(text).descendants.whereType<XmlElement>()) {
+        if (el.localName == 'getcontentlength') {
+          return int.tryParse(el.innerText.trim()) ?? -1;
+        }
+      }
+    } catch (_) {}
+    return -1;
   }
 
   String get _rootPath {
@@ -60,9 +82,13 @@ class WebDavDriver extends StorageDriver {
         port != 80 &&
         port != 443 &&
         !baseUri.hasPort;
-    _base = needPort
+    final authority = needPort
         ? '${baseUri.scheme}://${baseUri.host}:$port'
         : '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}';
+    // 服务器地址里带路径（https://host/dav）时不能丢：丢了会连到服务器根，
+    // 表现为「同一个地址别的客户端能进、本应用 404」。
+    final basePath = baseUri.path.replaceAll(RegExp(r'/+$'), '');
+    _base = '$authority$basePath';
 
     final headers = <String, String>{'User-Agent': 'Nimbo/0.1'};
     if (mount.username.isNotEmpty) {
@@ -239,6 +265,7 @@ class WebDavDriver extends StorageDriver {
     var done = partial ? resumeFrom : 0;
     try {
       await for (final chunk in body.stream) {
+        await TransferLimiter.instance.download.take(chunk.length);
         sink.add(chunk);
         done += chunk.length;
         onProgress?.call(done, total);
@@ -248,21 +275,51 @@ class WebDavDriver extends StorageDriver {
     }
   }
 
+  /// 上传：先写临时名，成功后再 MOVE 成正式名。
+  ///
+  /// WebDAV 既没有标准的追加写，也不保证「PUT 到一半中断」会回滚，直接写正式名
+  /// 会留下看起来正常、其实缺尾部的文件（比失败更糟）。写临时名后 MOVE 是
+  /// 原子的，中断时正式路径上要么是旧文件，要么什么也没有。
+  /// 代价：同目录下会短暂出现 `*.nimbo-part`，异常退出时可能残留（下次同名上传会覆盖）。
   @override
   Future<void> uploadFile(String localFile, String remotePath,
       {ProgressFn? onProgress, int resumeFrom = 0}) async {
-    // WebDAV 没有标准的追加写：中断后整份重传（下载侧仍支持 Range 续传）。
     final file = File(localFile);
     final length = await file.length();
-    final res = await _dio.put<dynamic>(
-      _uri(remotePath).toString(),
-      data: file.openRead(),
-      options: Options(
-        headers: {'Content-Length': length, 'Content-Type': 'application/octet-stream'},
-      ),
-      onSendProgress: onProgress == null ? null : (sent, total) => onProgress(sent, length),
-    );
-    _check(res, '上传');
+    final tempPath = '$remotePath.nimbo-part';
+    try {
+      final res = await _dio.put<dynamic>(
+        _uri(tempPath).toString(),
+        data: throttleStream(
+          file.openRead(),
+          TransferLimiter.instance.upload,
+        ),
+        options: Options(
+          headers: {'Content-Length': length, 'Content-Type': 'application/octet-stream'},
+        ),
+        onSendProgress: onProgress == null ? null : (sent, total) => onProgress(sent, length),
+      );
+      _check(res, '上传');
+
+      final moved = await _dio.request<dynamic>(
+        _uri(tempPath).toString(),
+        options: Options(
+          method: 'MOVE',
+          headers: {'Destination': _uri(remotePath).toString(), 'Overwrite': 'T'},
+          validateStatus: (s) => s != null && s < 500,
+        ),
+      );
+      _check(moved, '重命名上传结果');
+    } catch (e) {
+      // 中断/失败：尽力清掉临时文件，正式路径保持原样。
+      try {
+        await _dio.delete<dynamic>(
+          _uri(tempPath).toString(),
+          options: Options(validateStatus: (s) => s != null && s < 500),
+        );
+      } catch (_) {}
+      rethrow;
+    }
   }
 
   @override

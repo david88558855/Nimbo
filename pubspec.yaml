@@ -1,7 +1,7 @@
 name: nimbo
 description: "Nimbo — 多协议网盘客户端（FTP / SFTP / S3 / WebDAV / 本地），Windows + Android。"
 publish_to: 'none'
-version: 0.3.0+3
+version: 0.4.0+4
 
 environment:
   sdk: ">=3.3.0 <4.0.0"

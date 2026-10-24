@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../core/format.dart';
+import '../core/limiter.dart';
 import '../core/models.dart';
 import 'net.dart';
 import 'storage_driver.dart';
@@ -229,6 +230,7 @@ class FtpDriver extends StorageDriver {
       var done = start;
       try {
         await for (final chunk in data) {
+          await TransferLimiter.instance.download.take(chunk.length);
           await raf.writeFrom(chunk);
           done += chunk.length;
           onProgress?.call(done, total);
@@ -261,6 +263,7 @@ class FtpDriver extends StorageDriver {
       while (done < total) {
         final chunk = await raf.read(1 << 20);
         if (chunk.isEmpty) break;
+        await TransferLimiter.instance.upload.take(chunk.length);
         data.add(chunk);
         done += chunk.length;
         onProgress?.call(done, total);

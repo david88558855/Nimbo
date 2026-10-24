@@ -8,7 +8,9 @@ import 'package:dio/io.dart';
 import 'package:xml/xml.dart';
 
 import '../core/format.dart';
+import '../core/limiter.dart';
 import '../core/models.dart';
+import '../core/multipart_store.dart';
 import 'net.dart';
 import 'storage_driver.dart';
 
@@ -35,7 +37,10 @@ class S3Driver extends StorageDriver {
   Capability get caps => const Capability(space: false, checksum: true);
 
   @override
-  ResumeSupport get resume => ResumeSupport.download;
+  ResumeSupport get resume => ResumeSupport.both;
+
+  /// 分片上传的并行度：3 条 PUT 同时发，兼顾高延迟链路与 S3 的限流。
+  static const int _maxParallelParts = 3;
 
   @override
   Future<int> sizeOf(String path) async {
@@ -334,6 +339,7 @@ class S3Driver extends StorageDriver {
     var done = partial ? resumeFrom : 0;
     try {
       await for (final chunk in body.stream) {
+        await TransferLimiter.instance.download.take(chunk.length);
         sink.add(chunk);
         done += chunk.length;
         onProgress?.call(done, total);
@@ -343,19 +349,28 @@ class S3Driver extends StorageDriver {
     }
   }
 
-  /// 分片上传：> 8 MB 走 multipart，取消/失败都会 Abort，避免留下垃圾分片。
-  static const _defaultPart = 8 * 1024 * 1024;
+  /// 单片默认 8 MB（Part 大小下限是 5 MB，取 8 MB 便于对齐）。
+  static const int _defaultPart = 8 * 1024 * 1024;
 
+  /// 分片上传：> 8 MB 走 multipart。
+  ///
+  /// 与 v1 的区别：
+  /// - **可续传**：uploadId 与已完成分片的 ETag 存进 `userdata/multipart.json`，
+  ///   下次接着传时先用 ListParts 向服务端核对，只补缺失的分片。
+  /// - **断点不 Abort**：以前任何失败都 AbortMultipartUpload，这让「用户暂停」
+  ///   等于把已经传完的分片全部丢弃（大文件代价极高）。现在失败只保留状态，
+  ///   由 S3 的 lifecycle 规则兜底回收。
+  /// - **分片并发**：默认 3 条并行 PUT。
   @override
   Future<void> uploadFile(String localFile, String remotePath,
       {ProgressFn? onProgress, int resumeFrom = 0}) async {
-    // 分片上传的续传需要持久化 uploadId 与已传分片，本版不做：一律整份重传。
     final file = File(localFile);
     final length = await file.length();
     final key = _key(remotePath);
     final partSize = _choosePartSize(length);
 
     if (length <= partSize) {
+      // 小文件单次 PUT：覆盖写天然幂等，没有分片状态可续。
       final bytes = await file.readAsBytes();
       await _send<dynamic>(
         'PUT',
@@ -367,7 +382,29 @@ class S3Driver extends StorageDriver {
       onProgress?.call(length, length);
       return;
     }
-    await _multipartUpload(file, key, length, partSize, onProgress);
+    await _multipartUpload(file, key, length, partSize, onProgress, resumeFrom);
+  }
+
+  /// 续传起点：只认「磁盘上有对应分片状态」的情况，实际跳过哪些片由
+  /// [_multipartUpload] 里的 ListParts 再核对一次。
+  @override
+  Future<int> uploadResumeOffset(String localFile, String remotePath, int hint) async {
+    if (hint <= 0) return 0;
+    try {
+      final length = await File(localFile).length();
+      final partSize = _choosePartSize(length);
+      if (length <= partSize) return 0;
+      final state =
+          await MultipartStore.load(mount.id, _key(remotePath), length, partSize);
+      if (state == null || state.parts.isEmpty) return 0;
+      var done = 0;
+      for (final n in state.parts.keys) {
+        done += _partLength(n, length, partSize);
+      }
+      return done.clamp(0, length);
+    } catch (_) {
+      return 0;
+    }
   }
 
   /// 控制分片数在 900 以内（协议上限 10000，留足余量给小文件抖动）。
@@ -379,13 +416,15 @@ class S3Driver extends StorageDriver {
     return size;
   }
 
-  Future<void> _multipartUpload(
-    File file,
-    String key,
-    int length,
-    int partSize,
-    ProgressFn? onProgress,
-  ) async {
+  /// 第 [partNumber] 片的字节数（最后一片通常更短）。
+  static int _partLength(int partNumber, int length, int partSize) {
+    final start = (partNumber - 1) * partSize;
+    if (start >= length) return 0;
+    final remain = length - start;
+    return remain < partSize ? remain : partSize;
+  }
+
+  Future<String> _initMultipart(String key) async {
     final init = await _send<dynamic>('POST', _requestPath(key), query: {'uploads': ''});
     String? uploadId;
     try {
@@ -394,49 +433,170 @@ class S3Driver extends StorageDriver {
     if (uploadId == null || uploadId.isEmpty) {
       throw DriverException('初始化分片上传失败：响应里没有 UploadId', kind: DriverErrorKind.unknown);
     }
+    return uploadId;
+  }
 
-    final etags = <String>[];
-    final raf = await file.open();
-    try {
-      var offset = 0;
-      var partNumber = 1;
-      while (offset < length) {
-        final remain = length - offset;
-        final chunkLen = remain < partSize ? remain : partSize;
-        final chunk = await raf.read(chunkLen);
-        if (chunk.isEmpty) break;
-        final res = await _send<dynamic>(
-          'PUT',
-          _requestPath(key),
-          query: {'partNumber': '$partNumber', 'uploadId': uploadId},
-          body: chunk,
-          contentLength: chunk.length,
-          onProgress: onProgress == null
-              ? null
-              : (int sent, int _) => onProgress(offset + sent, length),
-        );
-        final etag = res.headers.value('etag');
-        if (etag == null || etag.isEmpty) {
-          throw DriverException('第 $partNumber 片没有返回 ETag', kind: DriverErrorKind.unknown);
-        }
-        etags.add(etag);
-        offset += chunk.length;
-        partNumber++;
-        onProgress?.call(offset, length);
-      }
-    } catch (e) {
-      // 任何中断（含用户暂停）都清理未完成的分片上传
+  /// ListParts：拿服务端已接收的分片（uploadId 过期时会抛错）。
+  Future<Map<int, String>> _listParts(String key, String uploadId) async {
+    final res = await _send<dynamic>('GET', _requestPath(key), query: {'uploadId': uploadId});
+    final doc = XmlDocument.parse(_bodyText(res));
+    final out = <int, String>{};
+    for (final node in doc.findAllElements('Part')) {
+      final n = int.tryParse(_firstText(node, 'PartNumber') ?? '');
+      final etag = _firstText(node, 'ETag');
+      if (n != null && etag != null && etag.isNotEmpty) out[n] = etag;
+    }
+    return out;
+  }
+
+  Future<void> _multipartUpload(
+    File file,
+    String key,
+    int length,
+    int partSize,
+    ProgressFn? onProgress,
+    int resumeFrom,
+  ) async {
+    final mountId = mount.id;
+    final totalParts = (length + partSize - 1) ~/ partSize;
+
+    MultipartState? state;
+    if (resumeFrom > 0) {
+      state = await MultipartStore.load(mountId, key, length, partSize);
+    }
+
+    String? uploadId = state?.uploadId;
+    var parts = <int, String>{...?state?.parts};
+
+    if (uploadId != null) {
       try {
-        await _send<dynamic>('DELETE', _requestPath(key), query: {'uploadId': uploadId});
-      } catch (_) {}
-      rethrow;
-    } finally {
-      await raf.close();
+        // 以服务端为准：本地记录可能比服务端多（例如 Complete 前被杀）。
+        parts = await _listParts(key, uploadId);
+      } catch (_) {
+        // uploadId 失效（过期 / 被 lifecycle 清理）：重新开一次，从头传。
+        uploadId = null;
+        parts = <int, String>{};
+      }
+    }
+    uploadId ??= await _initMultipart(key);
+
+    await MultipartStore.save(
+      mountId,
+      key,
+      MultipartState(
+          uploadId: uploadId, length: length, partSize: partSize, parts: parts),
+    );
+
+    // 进度 = 已完成分片字节 + 在传分片的已发送字节。
+    final inFlight = <int, int>{};
+    Object? progressError;
+
+    void emit() {
+      final cb = onProgress;
+      if (cb == null) return;
+      var done = 0;
+      for (final n in parts.keys) {
+        done += _partLength(n, length, partSize);
+      }
+      for (final v in inFlight.values) {
+        done += v;
+      }
+      try {
+        cb(done > length ? length : done, length);
+      } catch (e) {
+        // 进度回调里抛的是「用户暂停」：记下来，让分片边界处中断，
+        // 直接在这里抛会被 dio 包成 DioException，暂停就变成了失败。
+        progressError = e;
+      }
+    }
+
+    emit();
+
+    final pending = [
+      for (var n = 1; n <= totalParts; n++)
+        if (!parts.containsKey(n)) n
+    ];
+
+    var cursor = 0;
+    Object? failure;
+
+    Future<void> worker() async {
+      while (true) {
+        if (failure != null || progressError != null) return;
+        final i = cursor++;
+        if (i >= pending.length) return;
+        final n = pending[i];
+        final offset = (n - 1) * partSize;
+        final chunkLen = _partLength(n, length, partSize);
+
+        Uint8List chunk;
+        final raf = await file.open();
+        try {
+          await raf.setPosition(offset);
+          chunk = await raf.read(chunkLen);
+        } finally {
+          await raf.close();
+        }
+        if (chunk.isEmpty) {
+          failure = DriverException('读取本地文件失败：第 $n 片为空', kind: DriverErrorKind.unknown);
+          return;
+        }
+        await TransferLimiter.instance.upload.take(chunk.length);
+        if (progressError != null) return;
+
+        try {
+          final res = await _send<dynamic>(
+            'PUT',
+            _requestPath(key),
+            query: {'partNumber': '$n', 'uploadId': uploadId},
+            body: chunk,
+            contentLength: chunk.length,
+            onProgress: (sent, _) {
+              inFlight[n] = sent;
+              emit();
+            },
+          );
+          final etag = res.headers.value('etag');
+          if (etag == null || etag.isEmpty) {
+            throw DriverException('第 $n 片没有返回 ETag', kind: DriverErrorKind.unknown);
+          }
+          parts[n] = etag;
+          inFlight.remove(n);
+          emit();
+          await MultipartStore.save(
+            mountId,
+            key,
+            MultipartState(
+                uploadId: uploadId!, length: length, partSize: partSize, parts: parts),
+          );
+        } catch (e) {
+          inFlight.remove(n);
+          failure = e;
+          return;
+        }
+      }
+    }
+
+    await Future.wait([
+      for (var i = 0; i < _maxParallelParts; i++) worker(),
+    ]);
+
+    // 用户暂停优先：把原始异常抛出去，传输层才会走「已暂停 + 保留断点」这条路。
+    if (progressError != null) throw progressError!;
+    final error = failure;
+    if (error != null) {
+      if (error is DriverException) throw error;
+      throw DriverException('分片上传中断（已保留断点，可继续）：$error',
+          kind: DriverErrorKind.network);
     }
 
     final sb = StringBuffer('<CompleteMultipartUpload>');
-    for (var i = 0; i < etags.length; i++) {
-      sb.write('<Part><PartNumber>${i + 1}</PartNumber><ETag>${etags[i]}</ETag></Part>');
+    for (var n = 1; n <= totalParts; n++) {
+      final etag = parts[n];
+      if (etag == null) {
+        throw DriverException('第 $n 片缺失，无法完成上传', kind: DriverErrorKind.unknown);
+      }
+      sb.write('<Part><PartNumber>$n</PartNumber><ETag>$etag</ETag></Part>');
     }
     sb.write('</CompleteMultipartUpload>');
     final body = sb.toString();
@@ -447,6 +607,7 @@ class S3Driver extends StorageDriver {
       body: body,
       contentLength: utf8.encode(body).length,
     );
+    await MultipartStore.remove(mountId, key);
   }
 
   @override

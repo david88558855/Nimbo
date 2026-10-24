@@ -63,3 +63,16 @@ Future<int> testMount(Mount mount, {String? password, String? proxyPassword}) as
     await driver.close();
   }
 }
+
+/// 已保存挂载的「测试连接」：凭据与浏览会话取同一份（安全存储 + Windows 便携兜底）。
+Future<int> testMountWithStoredPassword(Mount mount) async {
+  final stored = await SecureStore.readSafe(mount.id);
+  if (!stored.ok && mount.protocol != MountProtocol.local) {
+    throw DriverException(
+      '系统凭据库不可用，读不到该挂载的密码。请编辑后重新输入密码。',
+      kind: DriverErrorKind.auth,
+    );
+  }
+  final proxyPassword = await SecureStore.read(mount.id, field: 'proxyPassword');
+  return testMount(mount, password: stored.value, proxyPassword: proxyPassword);
+}

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../core/format.dart';
+import '../core/limiter.dart';
 import '../core/models.dart';
 import 'storage_driver.dart';
 
@@ -44,7 +45,6 @@ class LocalDriver extends StorageDriver {
     if (!dir.existsSync()) {
       throw DriverException('本地目录不存在：$_root', kind: DriverErrorKind.notFound);
     }
-    if (!dir.listSync().isNotEmpty) return;
   }
 
   @override
@@ -116,6 +116,7 @@ class LocalDriver extends StorageDriver {
         await raf.setPosition(done);
       }
       await for (final chunk in src.openRead(done)) {
+        await TransferLimiter.instance.download.take(chunk.length);
         await raf.writeFrom(chunk);
         done += chunk.length;
         onProgress?.call(done, total);
@@ -142,6 +143,7 @@ class LocalDriver extends StorageDriver {
         await raf.setPosition(done);
       }
       await for (final chunk in src.openRead(done)) {
+        await TransferLimiter.instance.upload.take(chunk.length);
         await raf.writeFrom(chunk);
         done += chunk.length;
         onProgress?.call(done, total);

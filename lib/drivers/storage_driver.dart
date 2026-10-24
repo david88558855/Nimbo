@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import '../core/models.dart';
@@ -78,6 +79,30 @@ abstract class StorageDriver {
 
   /// 远端文件大小；不存在或不支持时返回 -1（用于上传续传前的校验）。
   Future<int> sizeOf(String path) async => -1;
+
+  /// 上传续传的起始偏移。
+  ///
+  /// [resumeFrom] 是上次中断时记录的字节数，但**不能直接信任**：内存里的计数
+  /// 只是「已经交给 socket 的字节」，不等于对端落盘量。默认实现拿远端
+  /// `sizeOf()` 复核，只有远端确实存在这么多字节才从那之后继续追加
+  /// （FTP APPE / SFTP offset / 本地 append）。对不上就整份重传。
+  ///
+  /// S3 分片上传没有「远端已有大小」的概念，它覆写本方法改看分片状态。
+  Future<int> uploadResumeOffset(
+    String localFile,
+    String remotePath,
+    int resumeFrom,
+  ) async {
+    if (resumeFrom <= 0 || !resume.canUpload) return 0;
+    try {
+      final local = await File(localFile).length();
+      final remote = await sizeOf(remotePath);
+      if (remote <= 0 || remote >= local) return 0;
+      return remote;
+    } catch (_) {
+      return 0;
+    }
+  }
 
   Future<void> mkdir(String path);
 

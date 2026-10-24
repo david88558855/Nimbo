@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:dartssh2/dartssh2.dart';
 
 import '../core/format.dart';
+import '../core/limiter.dart';
 import '../core/models.dart';
 import 'sftp_socket.dart';
 import 'storage_driver.dart';
@@ -26,7 +27,7 @@ class SftpDriver extends StorageDriver {
   String get scheme => 'sftp';
 
   @override
-  Capability get caps => const Capability(space: false, move: true);
+  Capability get caps => const Capability(space: true, move: true);
 
   @override
   ResumeSupport get resume => ResumeSupport.both;
@@ -116,8 +117,20 @@ class SftpDriver extends StorageDriver {
     return null;
   }
 
+  /// openssh 的 statvfs 扩展：拿「总块数 × 块大小」与「空闲块数 × 块大小」。
+  /// 服务器不支持该扩展（非 OpenSSH 实现常见）时抛错，按「未知容量」处理。
   @override
-  Future<SpaceInfo?> space() async => null;
+  Future<SpaceInfo?> space() async {
+    try {
+      final v = await _s.statvfs('/');
+      final total = v.blockSize * v.totalBlocks;
+      final free = v.blockSize * v.freeBlocks;
+      if (total <= 0) return null;
+      return SpaceInfo(total, free < 0 ? 0 : free);
+    } catch (_) {
+      return null;
+    }
+  }
 
   @override
   Future<Uint8List> readAll(String path) async {
@@ -149,6 +162,7 @@ class SftpDriver extends StorageDriver {
         await raf.setPosition(done);
       }
       await for (final chunk in handle.read(offset: done)) {
+        await TransferLimiter.instance.download.take(chunk.length);
         await raf.writeFrom(chunk);
         done += chunk.length;
         onProgress?.call(done, total > 0 ? total : done);
@@ -177,6 +191,7 @@ class SftpDriver extends StorageDriver {
       while (done < length) {
         final chunk = await raf.read(1 << 20);
         if (chunk.isEmpty) break;
+        await TransferLimiter.instance.upload.take(chunk.length);
         await handle.writeBytes(chunk, offset: done);
         done += chunk.length;
         onProgress?.call(done, length);

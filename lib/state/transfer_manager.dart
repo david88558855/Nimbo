@@ -395,18 +395,9 @@ class TransferManager extends ChangeNotifier {
     }
   }
 
-  /// 上传续传起点取远端实际大小：只有远端确实写了这么多字节才能接着传。
-  Future<int> _uploadStart(TransferTask task, StorageDriver driver) async {
-    if (task.resumeOffset <= 0 || !driver.resume.canUpload) return 0;
-    try {
-      final local = await File(task.localPath).length();
-      final remote = await driver.sizeOf(task.remotePath);
-      if (remote <= 0 || remote >= local) return 0;
-      return remote;
-    } catch (_) {
-      return 0;
-    }
-  }
+  /// 上传续传起点交给驱动决定：HTTP 类按远端大小复核，S3 看分片状态。
+  Future<int> _uploadStart(TransferTask task, StorageDriver driver) =>
+      driver.uploadResumeOffset(task.localPath, task.remotePath, task.resumeOffset);
 
   void _onProgress(TransferTask task, int done, int total) {
     task.transferred = done;

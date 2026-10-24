@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 
 import '../core/format.dart';
+import '../core/limiter.dart';
 import '../core/models.dart';
 import '../core/store.dart';
 import '../core/transfer_store.dart';
@@ -46,6 +47,9 @@ class AppState extends ChangeNotifier {
   StorageDriver? _driver;
   String path = '/';
   List<RemoteEntry> entries = const [];
+
+  /// 当前挂载的容量（协议不支持时为 null，界面显示「未知」）。
+  SpaceInfo? space;
   bool loading = false;
   String? error;
   RemoteEntry? selected;
@@ -78,7 +82,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> boot() async {
     await _prefs.load();
-    transfers.maxConcurrent = _prefs.settings.maxConcurrent;
+    _applyRuntimeSettings();
     // 恢复上次的传输记录：统一转成「已暂停」，由用户决定是否继续。
     final saved = await TransferStore.load();
     await transfers.restore(saved, _prefs.mounts.map((m) => m.id).toSet());
@@ -87,12 +91,22 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 把设置里的「运行时参数」同步给传输层：并发数与限速都只在启动/改设置时生效。
+  void _applyRuntimeSettings() {
+    transfers.maxConcurrent = _prefs.settings.maxConcurrent;
+    TransferLimiter.instance.configure(
+      uploadKbps: _prefs.settings.uploadLimitKbps,
+      downloadKbps: _prefs.settings.downloadLimitKbps,
+    );
+  }
+
   /// 回到「全部挂载」根，保留已建立的连接以便再次进入时更快。
   void showAll() {
     browseAll = true;
     loading = false;
     error = null;
     selected = null;
+    space = null;
     _clearPicked();
     notifyListeners();
   }
@@ -114,12 +128,22 @@ class AppState extends ChangeNotifier {
       _prefs.activeMountId = mount.id;
       await _prefs.save();
       entries = _visible(await d.list('/'));
+      space = await _readSpace(d);
     } catch (e) {
       _driver = null;
       error = describeError(e);
     } finally {
       loading = false;
       notifyListeners();
+    }
+  }
+
+  /// 容量读失败不影响浏览：只是显示「未知」。
+  Future<SpaceInfo?> _readSpace(StorageDriver driver) async {
+    try {
+      return await driver.space();
+    } catch (_) {
+      return null;
     }
   }
 
@@ -283,6 +307,42 @@ class AppState extends ChangeNotifier {
     await open(mount);
   }
 
+  /// 编辑已保存的挂载：凭据留空表示不改，避免用户为了改个名字要重输密码。
+  Future<void> updateMount(
+    Mount next, {
+    String? password,
+    String? proxyPassword,
+  }) async {
+    final index = _prefs.mounts.indexWhere((m) => m.id == next.id);
+    if (index < 0) throw DriverException('挂载已不存在，请刷新后重试');
+    if (password != null && password.isNotEmpty) {
+      final ok = await SecureStore.write(next.id, password);
+      if (!ok) {
+        throw DriverException(
+          '密码无法写入系统凭据库（权限或密钥库异常），修改未保存。',
+          kind: DriverErrorKind.auth,
+        );
+      }
+    }
+    if (proxyPassword != null && proxyPassword.isNotEmpty) {
+      final ok = await SecureStore.write(next.id, proxyPassword, field: 'proxyPassword');
+      if (!ok) {
+        throw DriverException('代理密码无法写入系统凭据库，修改未保存。',
+            kind: DriverErrorKind.auth);
+      }
+    }
+    _prefs.mounts[index] = next;
+    await _prefs.save();
+    notifyListeners();
+    // 正在浏览这个挂载时立刻重连，让新配置生效（连接参数变了，旧会话没意义）
+    if (!browseAll && _prefs.activeMountId == next.id) {
+      await open(next);
+    }
+  }
+
+  /// 已保存挂载的「测试连接」：凭据从安全存储取。
+  Future<int> testSavedMount(Mount mount) => testMountWithStoredPassword(mount);
+
   Future<void> removeMount(Mount mount) async {
     final browsing = !browseAll && _prefs.activeMountId == mount.id;
     _prefs.mounts.removeWhere((m) => m.id == mount.id);
@@ -356,7 +416,7 @@ class AppState extends ChangeNotifier {
   Future<void> updateSettings(void Function(AppSettings s) change) async {
     final beforeHidden = _prefs.settings.hideHiddenFiles;
     change(_prefs.settings);
-    transfers.maxConcurrent = _prefs.settings.maxConcurrent;
+    _applyRuntimeSettings();
     await _prefs.save();
     notifyListeners();
     // 隐藏文件开关直接影响当前列表，改完要按新规则重筛一次。

@@ -2,13 +2,18 @@ import 'package:flutter/material.dart';
 
 import '../app/theme.dart';
 import '../core/models.dart';
+import '../drivers/errors.dart';
 import '../drivers/factory.dart';
 import '../state/app_state.dart';
 import '../ui/kit.dart';
 
 class AddMountDialog extends StatefulWidget {
-  const AddMountDialog({super.key, required this.state});
+  const AddMountDialog({super.key, required this.state, this.existing});
+
   final AppState state;
+
+  /// 传入已保存的挂载即为「编辑」模式：字段预填，密码留空表示不修改。
+  final Mount? existing;
 
   @override
   State<AddMountDialog> createState() => _AddMountDialogState();
@@ -38,6 +43,31 @@ class _AddMountDialogState extends State<AddMountDialog> {
   bool _testing = false;
   String? _testResult;
   bool _testOk = false;
+
+  bool get _isEdit => widget.existing != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final m = widget.existing;
+    if (m == null) return;
+    _protocol = m.protocol;
+    _name.text = m.name;
+    _host.text = m.host;
+    _port.text = m.port == 0 ? '' : '${m.port}';
+    _user.text = m.username;
+    _rootPath.text = m.rootPath.isEmpty ? '/' : m.rootPath;
+    _bucket.text = m.bucket;
+    _region.text = m.region;
+    _pathStyle = m.pathStyle;
+    _readOnly = m.readOnly;
+    _anonymous = m.anonymous;
+    _proxyEnabled = m.proxy.enabled;
+    _proxyType = m.proxy.type;
+    _proxyHost.text = m.proxy.host;
+    _proxyPort.text = '${m.proxy.port}';
+    _proxyUser.text = m.proxy.username;
+  }
 
   @override
   void dispose() {
@@ -79,7 +109,7 @@ class _AddMountDialogState extends State<AddMountDialog> {
   bool get _isAnonymous => _protocol == MountProtocol.ftp && _anonymous;
 
   Mount _buildMount() => Mount(
-        id: 'm${DateTime.now().millisecondsSinceEpoch}',
+        id: widget.existing?.id ?? 'm${DateTime.now().millisecondsSinceEpoch}',
         name: _name.text.trim().isEmpty ? _protocol.label : _name.text.trim(),
         protocol: _protocol,
         host: _host.text.trim(),
@@ -98,6 +128,7 @@ class _AddMountDialogState extends State<AddMountDialog> {
           port: int.tryParse(_proxyPort.text.trim()) ?? 7890,
           username: _proxyUser.text.trim(),
         ),
+        createdAt: widget.existing?.createdAt,
       );
 
   Future<void> _test() async {
@@ -106,11 +137,15 @@ class _AddMountDialogState extends State<AddMountDialog> {
       _testResult = null;
     });
     try {
-      final count = await testMount(
-        _buildMount(),
-        password: _password.text,
-        proxyPassword: _proxyPassword.text,
-      );
+      final mount = _buildMount();
+      // 编辑模式下密码可能留空：此时用已保存的凭据测，而不是拿空密码去撞。
+      final count = _isEdit && _password.text.isEmpty
+          ? await widget.state.testSavedMount(mount)
+          : await testMount(
+              mount,
+              password: _password.text,
+              proxyPassword: _proxyPassword.text,
+            );
       setState(() {
         _testOk = true;
         _testResult = '连接成功 · 根目录 $count 项';
@@ -118,7 +153,7 @@ class _AddMountDialogState extends State<AddMountDialog> {
     } catch (e) {
       setState(() {
         _testOk = false;
-        _testResult = '$e';
+        _testResult = describeError(e);
       });
     } finally {
       if (mounted) setState(() => _testing = false);
@@ -142,17 +177,25 @@ class _AddMountDialogState extends State<AddMountDialog> {
       return;
     }
     try {
-      await widget.state.addMount(
-        mount,
-        password: _password.text,
-        proxyPassword: _proxyPassword.text,
-      );
+      if (_isEdit) {
+        await widget.state.updateMount(
+          mount,
+          password: _password.text.isEmpty ? null : _password.text,
+          proxyPassword: _proxyPassword.text.isEmpty ? null : _proxyPassword.text,
+        );
+      } else {
+        await widget.state.addMount(
+          mount,
+          password: _password.text,
+          proxyPassword: _proxyPassword.text,
+        );
+      }
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _testOk = false;
-        _testResult = '$e';
+        _testResult = describeError(e);
       });
     }
   }
@@ -182,8 +225,8 @@ class _AddMountDialogState extends State<AddMountDialog> {
                     child: const Icon(Icons.add_rounded, size: 15, color: Colors.white),
                   ),
                   const SizedBox(width: 10),
-                  const Text('添加挂载',
-                      style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800)),
+                  Text(_isEdit ? '编辑挂载' : '添加挂载',
+                      style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800)),
                   const Spacer(),
                   IconButton(
                     onPressed: () => Navigator.of(context).pop(false),
@@ -254,7 +297,7 @@ class _AddMountDialogState extends State<AddMountDialog> {
                       icon: Icons.bolt_rounded,
                       onPressed: _testing ? null : _test),
                   const SizedBox(width: 8),
-                  NimboButton('保存并连接',
+                  NimboButton(_isEdit ? '保存修改' : '保存并连接',
                       kind: NimboButtonKind.primary,
                       icon: Icons.check_rounded,
                       onPressed: _save),
@@ -275,7 +318,9 @@ class _AddMountDialogState extends State<AddMountDialog> {
         for (final p in MountProtocol.values)
           InkWell(
             borderRadius: BorderRadius.circular(10),
-            onTap: () => _onProtocolChanged(p),
+            // 编辑时不允许换协议：凭据语义（密码 / AK+SK）与路径规则都不同，
+            // 换协议更接近「删掉重建」，不如让用户重新添加一个。
+            onTap: _isEdit ? null : () => _onProtocolChanged(p),
             child: Container(
               width: 116,
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
@@ -366,7 +411,8 @@ class _AddMountDialogState extends State<AddMountDialog> {
             ],
           ),
           _field('Access Key', _user),
-          _field('Secret Key', _password, obscure: true),
+          _field('Secret Key', _password,
+              obscure: true, hint: _isEdit ? '留空表示不修改' : null),
           _field('根前缀（可空）', _rootPath, hint: '/media'),
           _switchRow('路径风格（path-style）', _pathStyle, (v) => setState(() => _pathStyle = v)),
           const SizedBox(height: 4),
@@ -376,7 +422,10 @@ class _AddMountDialogState extends State<AddMountDialog> {
           if (_protocol == MountProtocol.ftp)
             _switchRow('匿名登录（anonymous）', _anonymous, (v) => setState(() => _anonymous = v)),
           _field('用户名', _user, enabled: !_isAnonymous),
-          _field('密码', _password, obscure: true, enabled: !_isAnonymous),
+          _field('密码', _password,
+              obscure: true,
+              enabled: !_isAnonymous,
+              hint: _isEdit ? '留空表示不修改' : null),
           _field('根路径（可空）', _rootPath, hint: '/'),
         ],
         _switchRow('只读挂载', _readOnly, (v) => setState(() => _readOnly = v)),
