@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 
 /// 设计 token —— 与 design/index.html 的 CSS 变量一一对应。
