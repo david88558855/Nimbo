@@ -707,8 +707,11 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
 | 2026-10-24 08:58 | `8707c4d` | — | — | — | 按钮高度二次放大修正（被后续提交取代，构建取消） |
 | 2026-10-24 09:04 | `d40b7a3` | ✅（含单测） | ✅ | ✅ | 补 foundation 导入；**字号改动双端通过** |
 | 2026-10-24 09:14 | `f0fd062` | ✅（含单测） | ✅ | ✅ | **当前最终状态**：S3/WebDAV 端口归入地址、去掉独立端口框 |
+| 2026-10-24 09:31 | `957958a` | ✅（含单测） | ✅ | ✅ | S3 Endpoint 子路径修复（网关型 `/s3` 404） |
+| 2026-10-24 09:45 | `845181c` | — | — | — | 文档：技术栈审查报告（docs-only，不触发构建） |
+| 2026-10-24 10:03 | `75d5370` | ✅（含单测） | ✅ | ✅ | **当前最终状态**：Windows 托盘/单实例/退出路径加固 |
 
-- 最近一次成功：commit `f0fd062`（analyze + flutter test + android-arm64 + windows-x64 全绿）
+- 最近一次成功：commit `75d5370`（analyze + flutter test + android-arm64 + windows-x64 全绿）
 - 门禁现在是两条：`flutter analyze`（约 1.5 min）与 `flutter test`（纯逻辑单测，约 1 min）
 - 产物：`windows-x64-portable.zip` 12.53 MB（内含 `Nimbo.exe`）、`app-release.apk` 20.5 MB（arm64 release）
 - 耗时参考：analyze ≈ 1.5 min，windows ≈ 5 min，android ≈ 6 min
