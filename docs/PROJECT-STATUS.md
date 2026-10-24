@@ -532,9 +532,12 @@ WebDAV 没有标准追加写，也不能保证中断回滚。直接 PUT 正式�
 | 2026-10-24 08:13 | `1353b01` | ❌ | — | — | 令牌桶 `TokenBucket(this.rate)` 命中 setter（not_initialized_non_nullable_instance_field）；S3 查询串传了 `String?` |
 | 2026-10-24 08:16 | `bbe4d93` | ✅ | ✅ | ✅ | **P4 双端通过**：限速/SFTP 容量/挂载测试与编辑/WebDAV 原子上传/S3 分片续传 |
 | 2026-10-24 08:20 | `45e3c72` | ❌ | — | — | analyze 通过，新增的 `flutter test` 步骤失败：cnativeapi 的 native assets 需要 gtk+-3.0 / x11 / xi |
-| 2026-10-24 08:24 | `37e87f0` | — | — | — | 测试前补装 `libgtk-3-dev libx11-dev libxi-dev` |
+| 2026-10-24 08:24 | `37e87f0` | ✅（含单测） | — | — | 测试前补装 `libgtk-3-dev libx11-dev libxi-dev`，`flutter test` 通过（平台构建被后续提交取代，已取消） |
+| 2026-10-24 08:26 | `06331cc` | ✅（含单测） | — | — | 暂停被 dio 包装时仍按「已暂停」处理 + 文档补到 P4（平台构建被取消） |
+| 2026-10-24 08:31 | `75042b8` | ✅（含单测） | ✅ | ✅ | 限速行改 Wrap；**本轮双端全绿** |
+| 2026-10-24 08:36 | `7653d40` | ✅（含单测） | ✅ | ✅ | **本轮最终状态**：切换挂载清空容量、本地驱动 space 能力位修正 |
 
-- 最近一次成功：commit `bbe4d93`（analyze + android-arm64 + windows-x64 三绿）
+- 最近一次成功：commit `7653d40`（analyze + flutter test + android-arm64 + windows-x64 全绿）
 - 门禁现在是两条：`flutter analyze`（约 1.5 min）与 `flutter test`（纯逻辑单测，约 1 min）
 - 产物：`windows-x64-portable.zip` 12.53 MB（内含 `Nimbo.exe`）、`app-release.apk` 20.5 MB（arm64 release）
 - 耗时参考：analyze ≈ 1.5 min，windows ≈ 5 min，android ≈ 6 min
