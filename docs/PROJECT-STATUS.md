@@ -1,7 +1,7 @@
 # Nimbo 项目现状与交接说明
 
 > 写给下一位接手的人或 AI。目标：读完这一篇就能继续推进，不必回溯聊天记录。
-> 最后更新：2026-10-24 · P4 交付（限速 / 容量 / 挂载编辑 / WebDAV 原子落盘 / S3 分片续传）
+> 最后更新：2026-10-24 · 已完成 P0–P4 + 一轮全库缺陷审查（结论见 `docs/bug-audit.md`，4 条 P0/P1 待修）
 
 ---
 
@@ -12,6 +12,7 @@
 | 仓库 | `https://github.com/david88558855/Nimbo`（分支 `main`） |
 | 产物 | Windows x64 便携 zip + Android arm64 APK |
 | **硬约束** | **禁止本地编译**。本机没有 Flutter SDK，所有编译、静态检查、依赖解析只在 GitHub Actions 里发生 |
+| **先修什么** | 全库审查出的 16 条缺陷见 [`docs/bug-audit.md`](bug-audit.md)（含批次计划与进度勾选）。**BUG-01/02 会丢配置，先修** |
 | 真相来源 | `lib/` + `pubspec.yaml` + `.github/workflows/build.yml`。`android/`、`windows/` **不入库**，每次构建由 CI 现生成 |
 | 设计稿 | `design/index.html`（单文件、真实 CSS 渲染、可离线打开，v1.2） |
 | 当前版本 | `pubspec.yaml` → `0.4.0+4`；界面上的版本号统一取 `lib/core/version.dart` 的 `kAppVersion` |
@@ -83,12 +84,17 @@ git -c http.version=HTTP/1.1 ls-remote https://github.com/david88558855/Nimbo.gi
 | **P2 体验补齐** | 断点续传、预览、拖拽、多选批量、目录上传下载 | ✅ 完成 |
 | **P3 打磨** | 传输记录持久化、S3 目录分页删除、FTP 匿名、返回键逐级+双击退出、移动端长按多选、Windows 托盘/单实例、便携凭据、关闭到托盘 | ✅ 完成 |
 | **P4 可靠性** | 限速（上传/下载分开）、SFTP 容量、挂载测试与编辑、WebDAV 临时名 + MOVE、S3 分片续传 + 分片并发、统一错误文案、未知大小不确定进度、纯逻辑单测 | ✅ 完成 |
+| **P5 缺陷修复** | 全库审查 16 条（P0×2 / P1×2 / P2×8 / P3×4），批次 A→E 见 `docs/bug-audit.md` | 🟡 待开始（仅审查，未改代码） |
 
 **一句话现状**：五个协议都能真实读写，上传下载都能排队跑，代理对五个协议全部生效；
 大文件中断后能接着传（下载全协议；上传 FTP/SFTP/本地按远端大小续传，S3 分片按分片表续传）；
 限速、托盘、关闭到托盘、单实例、便携凭据、挂载编辑与单挂载测试连接都已可用；
 WebDAV 的上传也能续传（服务器支持 partial PUT 时从临时文件实测长度续写，不支持则自动整份重传）；
 剩下的是音视频/PDF 预览、FTPS、本地磁盘容量这几项。
+
+**已知缺陷**：2026-10-24 做过一轮全库审查（`docs/bug-audit.md`）。
+功能没有立即不可用的问题，但 **BUG-01（配置并发写）/ BUG-02（挂载解析失败丢配置）**
+会在极端情况下让用户「挂载忽然全没了」，建议下一轮优先修这两条。
 
 ---
 
@@ -607,6 +613,7 @@ assets/
 design/index.html              设计稿
 docs/s3-addressing-analysis.md S3 寻址模式与第三方兼容性分析（含 Endpoint 子路径）
 docs/tech-stack-audit.md      客户端技术栈审查（是否完全使用 Flutter + 风险点）
+docs/bug-audit.md             全库缺陷清单（16 条，含批次计划 / 验收标准 / 进度勾选）
 docs/PROJECT-STATUS.md         本文档
 tools/push_via_api.py          git 通道不通时的 API 推送脚本
 ```
@@ -932,6 +939,18 @@ OpenList 的做法是真正的虚拟文件系统（一个根下挂多个存储�
 
 ## 6. 待办（按建议顺序，P2/P3/P4 已完成项已移出）
 
+### 6.0 优先修复：审查缺陷（详见 [`docs/bug-audit.md`](bug-audit.md)）
+
+| 批 | 内容 | 说明 |
+|---|---|---|
+| A | BUG-01、BUG-02 | 配置并发写 / 解析失败丢挂载 —— **唯一会丢用户数据的路径**，先修并补单测 |
+| B | BUG-03、04、10、11、14 | 会话去重、取消语义、连接错误被清掉、单实例 socket 超时 |
+| C | BUG-05、06、07、08 | 限速除零、复制到源目录、注册表缓存、刷新节流 |
+| D | BUG-09、12 | FTP/SFTP 读超时、预热与删除竞态（需真机验证暂停/取消） |
+| E | BUG-13、15、16 | 本地列表异步化、WebDAV 临时文件清理、批量删除 busy 态 |
+
+### 6.1 功能待办
+
 | # | 事项 | 为什么 | 难度 | 主要文件 |
 |---|---|---|---|---|
 | 1 | **预览扩展（音视频 / PDF）** | 现在只覆盖图片与文本；`media_kit`（音视频）与 `pdfx`（PDF）都要评估包体积与 Windows/Android 两端的 native 依赖 | 高 | `preview_page.dart`、`pubspec.yaml` |
@@ -1106,9 +1125,11 @@ OpenList 的做法是真正的虚拟文件系统（一个根下挂多个存储�
 | 2026-10-24 14:22 | `6d9f3ff` | ✅（含单测 41 项） | ✅ | ✅ | 修 `'$base\Nimbo'` 丢反斜杠（analyze 报 unnecessary_string_escapes） |
 | 2026-10-24 14:33 | `6bdec0c` | ✅（含单测 41 项） | ✅ | ✅ | 去掉插值多余花括号，analyze 回到 17 条既有 info |
 | 2026-10-24 15:30 | `3d0e46f` | ✅（含单测 41 项） | ✅ | ✅ | 桌面端标题行新增「返回上层」按钮（移动端不加） |
-| 2026-10-24 15:52 | `e90f8f4` | ✅（含单测 41 项） | ✅ | ✅ | **当前最终状态**：挂载卡片重排（按钮统一 28、删除常态浅红底）+ 显示名称按内容自动生成 |
+| 2026-10-24 15:52 | `e90f8f4` | ✅（含单测 41 项） | ✅ | ✅ | 挂载卡片重排（按钮统一 28、删除常态浅红底）+ 显示名称按内容自动生成 |
+| 2026-10-24 16:02 | `eac8884` | ✅（含单测 41 项） | 构建中 | 构建中 | **当前最终状态**：显示名称改为默认空 + 必填强校验（撤销自动生成）；推送时本地代理 10808 故障，改用直连 |
 
 - 最近一次成功：commit `e90f8f4`（analyze 17 条既有 info + flutter test 41 项 + android-arm64 + windows-x64 全绿）
+- `eac8884`：analyze 已通过；双端构建在审查时仍在进行（若失败，多半与本次只动 `add_mount_page.dart` 无关，优先看 diff）
 - `flutter analyze` 现有 17 条 info（tray_manager legacy API 的 deprecated 提示为主），无 warning/error
 - 门禁现在是两条：`flutter analyze`（约 1.5 min）与 `flutter test`（纯逻辑单测，约 1 min）
 - 产物：`windows-x64-portable.zip` 12.53 MB（内含 `Nimbo.exe`）、`app-release.apk` 20.5 MB（arm64 release）

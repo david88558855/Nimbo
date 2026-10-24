@@ -30,6 +30,11 @@ gh run view --job $JOB --log-failed | sed -e 's/\x1b\[[0-9;]*m//g' | grep -E "er
 `analyze` 约 1.5 分钟，是唯一门禁；`android-arm64` / `windows-x64` 各约 5–6 分钟。
 **一次提交只改一类问题**，否则定位成本翻倍。
 
+## 接手第一件事
+
+读 `docs/bug-audit.md`：那里有 16 条已审查出的缺陷、分批修复计划与进度勾选。
+**BUG-01/02 会丢用户配置，优先修**，且修完要补 `prefs` 读写单测。
+
 ## 改代码前必须知道的
 
 - `StorageDriver` 的 `downloadTo` / `uploadFile` 签名一变，**五个驱动都要跟着改**；
