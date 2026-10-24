@@ -308,7 +308,8 @@ test/core_logic_test.dart    纯逻辑单测（路径 / 令牌桶 / 分片状态
 assets/
   tray.ico / tray.png          Windows 托盘图标（256px 圆角 N，脚本生成，无需设计源文件）
 design/index.html              设计稿
-docs/s3-addressing-analysis.md S3 寻址模式与第三方兼容性分析（15 条坑）
+docs/s3-addressing-analysis.md S3 寻址模式与第三方兼容性分析（含 Endpoint 子路径）
+docs/tech-stack-audit.md      客户端技术栈审查（是否完全使用 Flutter + 风险点）
 docs/PROJECT-STATUS.md         本文档
 tools/push_via_api.py          git 通道不通时的 API 推送脚本
 ```
