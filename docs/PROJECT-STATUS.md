@@ -1145,9 +1145,10 @@ OpenList 的做法是真正的虚拟文件系统（一个根下挂多个存储�
 | 2026-10-24 15:52 | `e90f8f4` | ✅（含单测 41 项） | ✅ | ✅ | 挂载卡片重排（按钮统一 28、删除常态浅红底）+ 显示名称按内容自动生成 |
 | 2026-10-24 16:02 | `eac8884` | ✅（含单测 41 项） | ✅ | ✅ | 显示名称改为默认空 + 必填强校验（撤销自动生成）；推送时本地代理 10808 故障，改用直连 |
 | 2026-10-24 16:15 | `4cc9372` | — | — | — | 文档：新增 `docs/bug-audit.md`（16 条缺陷 + 批次计划），接入交接文档；docs-only 不触发构建 |
+| 2026-10-24 16:22 | `6552b42` | ✅（含单测 46 项） | ✅ | ✅ | **当前最终状态**：Batch A——配置写入串行化 + 挂载解析逐条容错（BUG-01/02） |
 
-- 最近一次成功：commit `e90f8f4`（analyze 17 条既有 info + flutter test 41 项 + android-arm64 + windows-x64 全绿）
-- `eac8884`：三绿（analyze + 单测 41 项 + windows + android），即**当前最终状态**
+- 最近一次成功：commit `6552b42`（analyze 17 条既有 info + flutter test **46** 项 + android-arm64 + windows-x64 全绿）
+- 单测从 41 → 46：新增「配置解析（prefs.json 容错）」5 例（Batch A 的 BUG-02 守护）
 - `flutter analyze` 现有 17 条 info（tray_manager legacy API 的 deprecated 提示为主），无 warning/error
 - 门禁现在是两条：`flutter analyze`（约 1.5 min）与 `flutter test`（纯逻辑单测，约 1 min）
 - 产物：`windows-x64-portable.zip` 12.53 MB（内含 `Nimbo.exe`）、`app-release.apk` 20.5 MB（arm64 release）
