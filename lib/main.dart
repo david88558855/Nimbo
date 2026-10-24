@@ -10,15 +10,22 @@ import 'platform/single_instance.dart';
 import 'state/app_state.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isWindows) {
-    await windowManager.ensureInitialized();
-    // 单实例：第二个进程通知已有实例显示窗口后直接退出
+    // 单实例判定放在最前面：第二个进程只需一次回环握手就能退出，
+    // 连 Flutter 绑定与原生窗口都不用初始化（双击 exe 的反馈因此更快）。
     final first = await acquireSingleInstance(DesktopShell.instance.showWindow);
     if (!first) exit(0);
   }
+  WidgetsFlutterBinding.ensureInitialized();
+  if (Platform.isWindows) {
+    await windowManager.ensureInitialized();
+  }
   final state = AppState();
   await state.boot();
+  if (Platform.isWindows) {
+    // 托盘「退出」走 exit(0)，不会触发 dispose：先让状态层落盘再退。
+    DesktopShell.instance.onBeforeExit = state.flush;
+  }
   runApp(NimboApp(state: state));
   if (Platform.isWindows) {
     // 首帧后再建托盘，确保原生窗口句柄已就绪

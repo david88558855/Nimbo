@@ -63,6 +63,13 @@ class TransferManager extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 立即落盘（退出前调用）：取消防抖，避免 `exit(0)` 把最后一秒的状态丢掉。
+  Future<void> flush() async {
+    _saveTimer?.cancel();
+    _saveTimer = null;
+    await TransferStore.save(tasks);
+  }
+
   /// 状态变化后延迟落盘，避免高频进度回调把磁盘写满。
   void _scheduleSave() {
     if (_disposed) return;

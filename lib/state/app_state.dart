@@ -422,6 +422,17 @@ class AppState extends ChangeNotifier {
 
   void clearFinishedTasks() => transfers.clearFinished();
 
+  /// 退出前的落盘：配置与传输记录都立刻写一次。
+  ///
+  /// `exit(0)` 不会走 `dispose()`，所以托盘「退出」必须先调这里，
+  /// 否则最后一次改的设置、以及最后 700ms 内的传输进度会丢。
+  Future<void> flush() async {
+    try {
+      await _prefs.save();
+    } catch (_) {}
+    await transfers.flush();
+  }
+
   Future<void> updateSettings(void Function(AppSettings s) change) async {
     final beforeHidden = _prefs.settings.hideHiddenFiles;
     change(_prefs.settings);

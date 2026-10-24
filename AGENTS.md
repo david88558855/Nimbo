@@ -68,10 +68,16 @@ gh run view --job $JOB --log-failed | sed -e 's/\x1b\[[0-9;]*m//g' | grep -E "er
 
 - `lib/platform/` 下三个能力都只在 Windows 生效，Android 上靠 `Platform.isWindows` 挡掉：
   托盘（`desktop_shell.dart`）、单实例（`single_instance.dart`）、窗口管理。
+- 单实例是「端口区间 47913–47922 + 握手」，**不是**固定端口绑不上就退出：
+  那样遇到端口被别的程序占用时，双击 exe 会静默无反应。
 - **托盘双击**不能只靠兼容层的 `onTrayIconMouseDown` 时间差——`tray_manager 0.8` 的
   legacy 桥接会丢弃 `DoubleClicked`，必须同时监听底层 `TrayIconDoubleClickedEvent`。
 - 关窗行为由 `setPreventClose(true)` + `WindowListener.onWindowClose` 接管：
-  默认收进托盘，设置里可改成直接退出。
+  默认收进托盘；托盘没装好（`_trayReady == false`）时必须改为直接退出，否则会变成
+  「窗口藏了、托盘也没有」的僵尸进程。
+- 托盘菜单的点击会被派发两次（`MenuItem.onClick` + `TrayListener.onTrayMenuItemClick`）：
+  动作只写一处且要幂等。`exitApp()` 有 `_exiting` 闸，`showWindow()` 有 200ms 去重。
+- `exit(0)` 不走 `dispose()`：所有彻底退出的路径都要先 `onBeforeExit()` 落盘。
 - Windows 产物依赖 `cnativeapi.dll` / `window_manager_plugin.dll` 等，**必须整包分发**。
 - 便携数据全在 exe 同级 `userdata/`：`prefs.json`、`transfers.json`、`multipart.json`、
   `credentials.dat`。
