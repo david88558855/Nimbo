@@ -13,6 +13,7 @@
 | 产物 | Windows x64 便携 zip + Android arm64 APK |
 | **硬约束** | **禁止本地编译**。本机没有 Flutter SDK，所有编译、静态检查、依赖解析只在 GitHub Actions 里发生 |
 | **先修什么** | 全库审查出的 16 条缺陷见 [`docs/bug-audit.md`](bug-audit.md)（含批次计划与进度勾选）。**BUG-01/02 会丢配置，先修** |
+| **一页快照** | [`docs/HANDOVER.md`](HANDOVER.md)：背景 / 已完成功能 / 架构 / 待办 / 下一步计划 / 依赖与环境 |
 | 真相来源 | `lib/` + `pubspec.yaml` + `.github/workflows/build.yml`。`android/`、`windows/` **不入库**，每次构建由 CI 现生成 |
 | 设计稿 | `design/index.html`（单文件、真实 CSS 渲染、可离线打开，v1.2） |
 | 当前版本 | `pubspec.yaml` → `0.4.0+4`；界面上的版本号统一取 `lib/core/version.dart` 的 `kAppVersion` |
@@ -638,6 +639,7 @@ design/index.html              设计稿
 docs/s3-addressing-analysis.md S3 寻址模式与第三方兼容性分析（含 Endpoint 子路径）
 docs/tech-stack-audit.md      客户端技术栈审查（是否完全使用 Flutter + 风险点）
 docs/bug-audit.md             全库缺陷清单（16 条，含批次计划 / 验收标准 / 进度勾选）
+docs/HANDOVER.md              进度总结与交接快照（背景 / 功能 / 架构 / 待办 / 计划 / 环境）
 docs/PROJECT-STATUS.md         本文档
 tools/push_via_api.py          git 通道不通时的 API 推送脚本
 ```

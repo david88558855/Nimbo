@@ -9,6 +9,7 @@
 - 视觉与交互：见 `design/index.html`（设计稿 v1.2，单一浅色主题）
 - 技术分析：见 `docs/s3-addressing-analysis.md`（S3 寻址模式与第三方兼容性）
 - 技术栈审查：见 `docs/tech-stack-audit.md`（客户端是否完全使用 Flutter + 风险点）
+- 进度总结与交接：见 `docs/HANDOVER.md`（背景 / 功能 / 架构 / 待办 / 计划 / 环境）
 - 构建通道说明：git 推送不通时用 `python tools/push_via_api.py "说明"`（详见交接文档第 0 节）
 
 ## 构建
