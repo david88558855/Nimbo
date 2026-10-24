@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../app/theme.dart';
 import '../core/models.dart';
+import '../core/version.dart';
 import '../state/app_state.dart';
 import '../ui/kit.dart';
 import 'add_mount_page.dart';
@@ -184,7 +185,7 @@ class _Rail extends StatelessWidget {
                 const Text('Nimbo',
                     style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: NimboColors.ink)),
                 const SizedBox(width: 6),
-                const Text('0.1',
+                const Text(kAppVersion,
                     style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: NimboColors.ink4)),
               ],
             ),

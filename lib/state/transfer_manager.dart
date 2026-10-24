@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import '../core/format.dart';
 import '../core/models.dart';
 import '../core/transfer_store.dart';
+import '../drivers/errors.dart';
 import '../drivers/factory.dart';
 import '../drivers/storage_driver.dart';
 
@@ -357,7 +358,7 @@ class TransferManager extends ChangeNotifier {
       if (tasks.contains(task)) {
         task.status = TransferStatus.failed;
         task.speed = 0;
-        task.error = e is DriverException ? e.message : _short(e);
+        task.error = shortError(e);
         _markResumePoint(task);
       }
     } finally {
@@ -411,11 +412,6 @@ class TransferManager extends ChangeNotifier {
     task.transferred = done;
     if (total > 0) task.total = total;
     if (task.abort) throw const TransferAborted();
-  }
-
-  static String _short(Object e) {
-    final s = '$e';
-    return s.length > 220 ? '${s.substring(0, 220)}…' : s;
   }
 
   void _discardPartial(String localPath) {

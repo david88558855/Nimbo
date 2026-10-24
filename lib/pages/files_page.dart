@@ -1195,7 +1195,7 @@ class _TaskStrip extends StatelessWidget {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(99),
                   child: LinearProgressIndicator(
-                    value: done ? 1 : latest.progress,
+                    value: done ? 1 : latest.indicatorValue,
                     minHeight: 4,
                     backgroundColor: NimboColors.line2,
                     color: color,

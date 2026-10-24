@@ -306,7 +306,14 @@ class TransferTask {
   bool get isActive =>
       status == TransferStatus.running || status == TransferStatus.queued;
 
+  /// 协议没给出总大小时（FTP 无 SIZE、分片上传前）进度条应画不确定态，
+  /// 否则会一直停在 0% 让人以为卡住了。
+  bool get hasTotal => total > 0;
+
   double get progress => total <= 0 ? 0 : (transferred / total).clamp(0.0, 1.0);
+
+  /// 交给 `LinearProgressIndicator` 的值：null = 不确定态。
+  double? get indicatorValue => total <= 0 ? null : progress;
 
   /// 剩余时间，速度未知时返回 null。
   Duration? get remaining {
@@ -329,6 +336,7 @@ class TransferTask {
         'status': status.name,
         'error': error,
         'resumeOffset': resumeOffset,
+        'resumable': resumable,
         'createdAt': createdAt.toIso8601String(),
         'finishedAt': finishedAt?.toIso8601String(),
       };
@@ -352,6 +360,8 @@ class TransferTask {
     );
     task.transferred = (j['transferred'] as num?)?.toInt() ?? 0;
     task.resumeOffset = (j['resumeOffset'] as num?)?.toInt() ?? 0;
+    // 老版本记录没有这个字段：保守按「不支持续传」处理，界面不显示续传提示。
+    task.resumable = j['resumable'] == true;
     task.finishedAt = DateTime.tryParse((j['finishedAt'] as String?) ?? '');
     return task;
   }

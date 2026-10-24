@@ -7,6 +7,7 @@ import '../core/format.dart';
 import '../core/models.dart';
 import '../core/store.dart';
 import '../core/transfer_store.dart';
+import '../drivers/errors.dart';
 import '../drivers/factory.dart';
 import '../drivers/storage_driver.dart';
 import 'transfer_manager.dart';
@@ -115,7 +116,7 @@ class AppState extends ChangeNotifier {
       entries = _visible(await d.list('/'));
     } catch (e) {
       _driver = null;
-      error = e is DriverException ? e.message : '$e';
+      error = describeError(e);
     } finally {
       loading = false;
       notifyListeners();
@@ -131,7 +132,7 @@ class AppState extends ChangeNotifier {
     try {
       entries = _visible(await d.list(path));
     } catch (e) {
-      error = e is DriverException ? e.message : '$e';
+      error = describeError(e);
     } finally {
       loading = false;
       notifyListeners();
@@ -151,7 +152,7 @@ class AppState extends ChangeNotifier {
       entries = _visible(await d.list(normalized));
       path = normalized;
     } catch (e) {
-      error = e is DriverException ? e.message : '$e';
+      error = describeError(e);
     } finally {
       loading = false;
       notifyListeners();
@@ -353,9 +354,16 @@ class AppState extends ChangeNotifier {
   void clearFinishedTasks() => transfers.clearFinished();
 
   Future<void> updateSettings(void Function(AppSettings s) change) async {
+    final beforeHidden = _prefs.settings.hideHiddenFiles;
     change(_prefs.settings);
     transfers.maxConcurrent = _prefs.settings.maxConcurrent;
     await _prefs.save();
     notifyListeners();
+    // 隐藏文件开关直接影响当前列表，改完要按新规则重筛一次。
+    if (beforeHidden != _prefs.settings.hideHiddenFiles &&
+        !browseAll &&
+        hasMount) {
+      unawaited(refresh());
+    }
   }
 }

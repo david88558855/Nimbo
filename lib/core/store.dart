@@ -55,24 +55,45 @@ class StoredSecret {
   final bool ok;
 }
 
-class AppSettings {  bool hideHiddenFiles = false;
+class AppSettings {
+  bool hideHiddenFiles = false;
   bool confirmDelete = true;
+
+  /// 关窗行为：true = 收进托盘（默认），false = 直接退出。
+  bool closeToTray = true;
 
   /// 并发传输数：每个任务独占一条连接。
   int maxConcurrent = 2;
 
+  /// 全局限速（KB/s，0 表示不限）。按方向分开配，因为上下行的带宽通常不对称。
+  int uploadLimitKbps = 0;
+  int downloadLimitKbps = 0;
+
   Map<String, dynamic> toJson() => {
         'hideHiddenFiles': hideHiddenFiles,
         'confirmDelete': confirmDelete,
+        'closeToTray': closeToTray,
         'maxConcurrent': maxConcurrent,
+        'uploadLimitKbps': uploadLimitKbps,
+        'downloadLimitKbps': downloadLimitKbps,
       };
 
   void load(Map<String, dynamic>? j) {
     if (j == null) return;
     hideHiddenFiles = j['hideHiddenFiles'] == true;
     confirmDelete = j['confirmDelete'] != false;
+    closeToTray = j['closeToTray'] != false;
     final c = (j['maxConcurrent'] as num?)?.toInt() ?? 2;
     maxConcurrent = c < 1 ? 1 : (c > 4 ? 4 : c);
+    uploadLimitKbps = _clampKbps((j['uploadLimitKbps'] as num?)?.toInt());
+    downloadLimitKbps = _clampKbps((j['downloadLimitKbps'] as num?)?.toInt());
+  }
+
+  /// 上限 1 GB/s：再大没有意义，也避免手输错误把令牌桶计算出天文数字。
+  static int _clampKbps(int? v) {
+    final n = v ?? 0;
+    if (n <= 0) return 0;
+    return n > 1024 * 1024 ? 1024 * 1024 : n;
   }
 }
 

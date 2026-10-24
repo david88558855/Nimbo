@@ -200,7 +200,7 @@ class _TaskCard extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(99),
             child: LinearProgressIndicator(
-              value: done ? 1 : task.progress,
+              value: done ? 1 : task.indicatorValue,
               minHeight: 4,
               backgroundColor: NimboColors.line2,
               color: color,
@@ -220,7 +220,10 @@ class _TaskCard extends StatelessWidget {
                       color: failed ? NimboColors.dangerInk : NimboColors.ink3),
                 ),
               ),
-              Text('${(task.progress * 100).toStringAsFixed(0)}%',
+              Text(
+                  task.hasTotal
+                      ? '${(task.progress * 100).toStringAsFixed(0)}%'
+                      : '—',
                   style: const TextStyle(
                       fontSize: 9.5, fontWeight: FontWeight.w700, color: NimboColors.ink3)),
             ],
