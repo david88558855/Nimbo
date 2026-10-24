@@ -153,26 +153,35 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
               const SizedBox(height: 10),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(
                     width: 92,
-                    child: Text('限速',
-                        style: TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w600,
-                            color: NimboColors.ink3)),
+                    child: Padding(
+                      padding: EdgeInsets.only(top: 10),
+                      child: Text('限速',
+                          style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                              color: NimboColors.ink3)),
+                    ),
                   ),
+                  // 窄屏（手机）放不下两个输入框 + 说明，用 Wrap 自动折行，
+                  // 否则 92 + 122 + 10 + 122 + 说明 会直接溢出。
                   Expanded(
-                    child: Row(
+                    child: Wrap(
+                      spacing: 10,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         _limitField(_uploadLimit, '上传 KB/s', upload: true),
-                        const SizedBox(width: 10),
                         _limitField(_downloadLimit, '下载 KB/s', upload: false),
-                        const SizedBox(width: 10),
-                        const Expanded(
+                        const SizedBox(
+                          width: 186,
                           child: Text('留空或 0 = 不限速；按全部任务合计',
                               style: TextStyle(
                                   fontSize: 9.5,
+                                  height: 1.5,
                                   fontWeight: FontWeight.w600,
                                   color: NimboColors.ink4)),
                         ),
