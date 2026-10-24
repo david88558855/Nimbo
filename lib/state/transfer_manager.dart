@@ -265,6 +265,7 @@ class TransferManager extends ChangeNotifier {
   void resume(TransferTask task) {
     if (task.status == TransferStatus.running || task.status == TransferStatus.done) return;
     task.abort = false;
+    task.discardPartial = false;
     task.speed = 0;
     task.sampleAt = null;
     task.sampleBytes = task.transferred;
@@ -275,10 +276,11 @@ class TransferManager extends ChangeNotifier {
 
   void retry(TransferTask task) => resume(task);
 
-  /// 取消：中止并移出列表。半截下载文件一并清掉（用户明确放弃）。
+  /// 取消：中止并移出列表。半截下载文件由 [_run] 的 finally 在**驱动关闭之后**清掉
+  /// —— 立刻删在 Windows 上会因为文件仍被打开而失败（BUG-04）。
   void cancel(TransferTask task) {
     task.abort = true;
-    if (task.dir == TransferDir.download) _discardPartial(task.localPath);
+    if (task.dir == TransferDir.download) task.discardPartial = true;
     task.resumeOffset = 0;
     tasks.remove(task);
     _scheduleSave();
@@ -398,19 +400,25 @@ class TransferManager extends ChangeNotifier {
         }
       }
     } finally {
+      // abort / discardPartial 马上会被清掉，先取值（任务可能已从列表移除）。
+      final discard = task.discardPartial;
       task.abort = false;
+      task.discardPartial = false;
       try {
         await driver?.close();
       } catch (_) {}
+      // 删除放到 close 之后：驱动仍握着写句柄时删除会失败（BUG-04 / BUG-14）。
+      if (discard) _discardPartial(task.localPath);
       _pump();
     }
   }
 
-  /// 记下可续传的进度；不支持续传的下载直接删掉半截文件，避免占位误导。
+  /// 记下可续传的进度；不支持续传的下载标记为「停下来后删半截文件」，
+  /// 由 [_run] 的 finally 在驱动关闭后执行（BUG-14）。
   void _markResumePoint(TransferTask task) {
     task.resumeOffset = task.transferred;
     if (task.dir == TransferDir.download && !task.resumable) {
-      _discardPartial(task.localPath);
+      task.discardPartial = true;
       task.resumeOffset = 0;
       task.transferred = 0;
     }

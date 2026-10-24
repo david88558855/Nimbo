@@ -54,6 +54,9 @@ class AppState extends ChangeNotifier {
   /// 每个挂载上一次的连接错误（连上后在 [sessionFor] 里清掉）。
   final Map<String, String> _sessionErrors = <String, String>{};
 
+  /// 正在建立中的会话：同一挂载同时多次调用只建一条（BUG-03）。
+  final Map<String, Future<StorageDriver>> _pending = <String, Future<StorageDriver>>{};
+
   /// 当前浏览挂载所使用的会话。
   StorageDriver? get _driver => _sessions[_prefs.activeMountId];
 
@@ -102,12 +105,40 @@ class AppState extends ChangeNotifier {
   /// 取（必要时建立）某个挂载的会话。
   ///
   /// [reconnect] 为 true 时先关掉旧会话再重连（改配置/换凭据后用）。
-  /// 同一挂载永远只保留一个会话实例，避免连接泄漏。
+  ///
+  /// **同一挂载只会同时存在一条连接**：已建好的直接返回；正在建的复用同一个 Future
+  /// （启动预热与用户点击、复制目标选择器都可能同时触发，见 BUG-03），
+  /// 否则后写覆盖前者，先建的那条没人 close。
   Future<StorageDriver> sessionFor(Mount mount, {bool reconnect = false}) async {
-    final existing = _sessions[mount.id];
-    if (existing != null && !reconnect) return existing;
+    if (reconnect) {
+      // 重连：先等「正在建的」建完再一起关，避免留下无主连接。
+      final pending = _pending.remove(mount.id);
+      if (pending != null) {
+        try {
+          final d = await pending;
+          await d.close();
+        } catch (_) {}
+      }
+      await dropSession(mount.id);
+    } else {
+      final existing = _sessions[mount.id];
+      if (existing != null) return existing;
+      final building = _pending[mount.id];
+      if (building != null) return building;
+    }
+
+    final future = _connectSession(mount);
+    _pending[mount.id] = future;
+    try {
+      return await future;
+    } finally {
+      if (_pending[mount.id] == future) _pending.remove(mount.id);
+    }
+  }
+
+  Future<StorageDriver> _connectSession(Mount mount) async {
+    final existing = _sessions.remove(mount.id);
     if (existing != null) {
-      _sessions.remove(mount.id);
       try {
         await existing.close();
       } catch (_) {}
@@ -204,9 +235,10 @@ class AppState extends ChangeNotifier {
       space = await _readSpace(d);
     } catch (e) {
       error = describeError(e);
-      _sessionErrors[mount.id] = error!;
       // 连不上就别留着半个会话，下次进来重新握手。
       await dropSession(mount.id);
+      // 顺序很重要：dropSession 会清掉错误表，所以必须在它之后写（BUG-10）。
+      _sessionErrors[mount.id] = error!;
     } finally {
       loading = false;
       notifyListeners();

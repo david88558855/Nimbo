@@ -78,11 +78,18 @@ Future<bool> _wakeExisting(int port) async {
 void _serveSecondInstance(Socket socket, Future<void> Function() onSecondLaunch) {
   var handled = false;
   late final StreamSubscription<String> sub;
+  // 外部程序连上却什么都不发时，这个 socket 会被永久挂住（每次启动多一个，见 BUG-11）。
+  final guard = Timer(const Duration(seconds: 5), () {
+    if (handled) return;
+    unawaited(sub.cancel());
+    socket.destroy();
+  });
 
   Future<void> handle(String chunk, StreamSubscription<String> self) async {
     if (handled) return;
     if (!chunk.contains(kInstanceShow)) return; // 不是我们的握手，忽略
     handled = true;
+    guard.cancel();
     try {
       socket.write('$kInstanceAnswer\n');
       await socket.flush();

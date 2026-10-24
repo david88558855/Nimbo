@@ -298,6 +298,10 @@ class TransferTask {
   /// 用户请求中止（暂停 / 取消）：进度回调会抛出，从而中断驱动内部的循环。
   bool abort = false;
 
+  /// 任务真正停下来之后，是否要删掉本地半截文件（取消 / 不支持续传时置位）。
+  /// 不能立刻删：驱动还握着文件句柄，Windows 上删除会失败（BUG-04 / BUG-14）。
+  bool discardPartial = false;
+
   /// 上次中断时的字节数，> 0 表示下次启动尝试续传（实际起点由驱动侧复核）。
   int resumeOffset = 0;
 
