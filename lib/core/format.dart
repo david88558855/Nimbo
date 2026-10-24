@@ -124,3 +124,11 @@ String normalizePath(String path) {
   if (p.length > 1 && p.endsWith('/')) p = p.substring(0, p.length - 1);
   return p;
 }
+
+/// 本地落盘名：去掉 Windows 非法字符，避免下载失败才发现。
+String sanitizeName(String name) {
+  var s = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+  if (s.isEmpty) s = 'unnamed';
+  if (s.length > 180) s = s.substring(0, 180);
+  return s;
+}

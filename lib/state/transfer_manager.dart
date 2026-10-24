@@ -39,9 +39,17 @@ class TransferManager extends ChangeNotifier {
   int _seq = 0;
 
   /// 恢复上次会话的任务列表：进行中的一律转成「已暂停」，绝不自动重跑。
-  Future<void> restore(List<TransferTask> saved, Set<String> liveMountIds) async {
-    final usable = saved.where((t) => liveMountIds.contains(t.mountId)).toList();
+  ///
+  /// 必须把挂载一并登记进 `_mounts`：任务恢复后只剩 mountId，用户点「继续」时
+  /// [_run] 要靠它重建连接。只传 id 集合的话，恢复出来的任务会一律报
+  /// 「挂载已不存在」。
+  Future<void> restore(List<TransferTask> saved, List<Mount> mounts) async {
+    final byId = {for (final m in mounts) m.id: m};
+    final usable = saved.where((t) => byId.containsKey(t.mountId)).toList();
     if (usable.isEmpty) return;
+    _mounts
+      ..clear()
+      ..addAll(byId);
     tasks
       ..clear()
       ..addAll(usable);
@@ -62,6 +70,12 @@ class TransferManager extends ChangeNotifier {
     _saveTimer = Timer(const Duration(milliseconds: 700), () {
       unawaited(TransferStore.save(tasks));
     });
+  }
+
+  /// 挂载配置被编辑后同步给队列：恢复出来的任务都用这里的挂载副本建连接，
+  /// 不同步就会拿旧地址/旧代理去连。
+  void syncMount(Mount mount) {
+    _mounts[mount.id] = mount;
   }
 
   int get runningCount =>
@@ -481,10 +495,3 @@ Future<Directory> downloadDir() async {
   return d;
 }
 
-/// 本地落盘名：去掉 Windows 非法字符，避免下载失败才发现。
-String sanitizeName(String name) {
-  var s = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
-  if (s.isEmpty) s = 'unnamed';
-  if (s.length > 180) s = s.substring(0, 180);
-  return s;
-}

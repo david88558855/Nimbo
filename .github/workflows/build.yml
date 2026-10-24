@@ -30,6 +30,9 @@ jobs:
         run: flutter pub get
       - name: analyze
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: unit tests
+        # 纯逻辑单测（路径/令牌桶/分片状态/错误文案），不碰网络与平台插件
+        run: flutter test --reporter expanded
 
   android:
     name: android-arm64

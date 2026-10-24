@@ -85,7 +85,7 @@ class AppState extends ChangeNotifier {
     _applyRuntimeSettings();
     // 恢复上次的传输记录：统一转成「已暂停」，由用户决定是否继续。
     final saved = await TransferStore.load();
-    await transfers.restore(saved, _prefs.mounts.map((m) => m.id).toSet());
+    await transfers.restore(saved, _prefs.mounts);
     // 启动停在「全部挂载」：根目录先让用户看到所有挂载，而不是直接钻进上次那个。
     browseAll = true;
     notifyListeners();
@@ -301,6 +301,7 @@ class AppState extends ChangeNotifier {
           kind: DriverErrorKind.auth);
     }
     _prefs.mounts.add(mount);
+    transfers.syncMount(mount);
     _prefs.activeMountId = mount.id;
     await _prefs.save();
     notifyListeners();
@@ -332,6 +333,7 @@ class AppState extends ChangeNotifier {
       }
     }
     _prefs.mounts[index] = next;
+    transfers.syncMount(next);
     await _prefs.save();
     notifyListeners();
     // 正在浏览这个挂载时立刻重连，让新配置生效（连接参数变了，旧会话没意义）
