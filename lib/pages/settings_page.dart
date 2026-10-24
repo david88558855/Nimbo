@@ -309,7 +309,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 const Divider(height: 18, color: Color(0xFFF0F4F9)),
                 _row('单实例', '重复启动只唤起已有窗口，不会出现第二个进程'),
-                _row('托盘', '左键单击/双击都显示并聚焦；右键菜单可显示或退出'),
+                _row('托盘', '单击无响应；双击或右键菜单「显示主窗口」唤回；右键可退出'),
               ],
             ),
           ),

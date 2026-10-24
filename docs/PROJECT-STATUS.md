@@ -186,7 +186,7 @@ downloadTo / uploadFile / mkdir / removeEntry / move / probe`，错误统一抛 
 | S3 目录删除 | `IsTruncated` + `NextContinuationToken` 循环，不再只删前 1000 个键 |
 | 长按多选 | 行内长按进入多选（移动端主入口），单项操作走行尾「更多」菜单 |
 | 传输记录持久化 | `core/transfer_store.dart` → `userdata/transfers.json`，保留 60 条；启动恢复为「已暂停」，不自动重跑；状态变化 700 ms 防抖落盘，退出时再落一次 |
-| Windows 托盘 | `lib/platform/desktop_shell.dart` + `assets/tray.ico`（脚本生成的 256px 圆角 N）。左键单击/双击显示-还原-聚焦、悬停提示 `Nimbo`、右键菜单「显示主窗口 / 退出」（**需显式 `setContextMenuTrigger(rightClicked)`**，见 2.13） |
+| Windows 托盘 | `lib/platform/desktop_shell.dart` + `assets/tray.ico`（脚本生成的 256px 圆角 N）。左键单击无响应、双击与菜单项共用 `showWindow()`、悬停提示 `Nimbo`、右键菜单「显示主窗口 / 退出」（**需显式 `setContextMenuTrigger(rightClicked)`**，见 2.13） |
 | 单实例 | `lib/platform/single_instance.dart`：回环 47913 端口，第二个进程写入 `show` 后 `exit(0)`；不用锁文件，进程退出端口自然释放 |
 | 便携凭据 | Windows 双写 `userdata/credentials.dat`（固定密钥 XOR + base64），读取优先系统凭据库、失败回落便携文件；删挂载清两边。**这是可逆混淆，不是加密**，只解决「整个目录拷走密码还在」 |
 | 关闭到托盘 | `windowManager.setPreventClose(true)` + `WindowListener.onWindowClose`：按设置 `closeToTray` 决定 hide 还是退出（默认收进托盘）。不打开拦截时窗口控件会被销毁，托盘菜单点了也没反应 |
@@ -313,7 +313,7 @@ S3 与 WebDAV 都跑在 HTTP 上，端口本来就是 URL 的一部分。原来�
 2. 读回失败时保留兜底路径：`onTrayIconRightMouseDown()` 里手动 `popUpContextMenu()`。
    两条路径互斥（`_menuByNativeTrigger`），否则会弹两次——第二次弹出会把第一次顶掉，
    表现为「菜单一闪就消失」。
-3. 顺带把左键单击从「空操作」改成「显示并聚焦窗口」：单击没反应和「托盘坏了」无法区分，
+3. 左键单击仍保持「空操作」（后按需求明确为无响应）；双击改由底层 DoubleClicked 事件驱动，
    双击会连发两次 down，由 `showWindow()` 的 300ms 去重吞掉（原来用 450ms 时间差
    识别双击的写法一并删掉）。
 4. 退出路径加 60ms 让出：菜单点击是在原生 `TrackPopupMenu` 的调用栈里派发的
@@ -339,43 +339,41 @@ S3 与 WebDAV 都跑在 HTTP 上，端口本来就是 URL 的一部分。原来�
 - 目录被删 / 没权限 / 路径变成文件时不再报错，而是回落默认目录并照常下载
   （写探针失败即判定不可用）。
 
-### 2.15 Windows 界面字体：思源黑体 / Noto Sans SC（随包内置）
+### 2.15 Windows 界面字体：Arial（系统字体，不打包）
 
-**可用性判断（先说结论）**：Windows **不预装**思源黑体 / Noto Sans SC
-（Win10/11 自带的是微软雅黑 `Microsoft YaHei UI`、等线 `DengXian`、宋体 `SimSun`）。
-所以「只填字体名」这条路在绝大多数用户机器上会静默回落到雅黑，等于没换。
-要保证生效只有一条路：**把字体文件打进应用**。
+**为什么换成 Arial**：上一版内置的思源黑体只带了 400/500/700 三个字重，界面里大量
+`w600 / w700 / w800` 全被匹配到 500 或 700，加上思源黑体本身笔画偏厚，整体观感「发粗」。
+Arial 的拉丁字形笔画细而均匀，且是 Windows 各版本（Win7 起）都随系统安装的核心字体，
+**不需要打包**——顺带把上一版内置的 24 MB 字体文件全部删掉了。
 
 | 项 | 取值 |
 |---|---|
-| 字族名 | `NotoSansSC`（pubspec 里声明的 family，不是系统字体名） |
-| 内置字重 | 400 / 500 / 700（`assets/fonts/*.otf`，各约 8 MB，共 24 MB） |
-| 许可证 | SIL OFL 1.1，原文在 `assets/fonts/OFL.txt`（OFL 要求随字体分发） |
-| 生效范围 | 仅 Windows（`defaultTargetPlatform == windows`）；Android/macOS 保持 Flutter 默认 |
-| 回落链 | `Microsoft YaHei UI` → `Microsoft YaHei` → `Segoe UI`（缺字 / emoji 时兜底） |
+| 字族名 | `Arial`（系统字体名，非 family 别名） |
+| 可用性 | Windows 7/8/10/11 全部自带（`C://Windows//Fonts//arial.ttf`），无需内置 |
+| 中文 | **Arial 不含 CJK 字形**，中文由回落链 `Microsoft YaHei UI` → `Microsoft YaHei` 提供 |
+| 符号兜底 | 链尾 `Segoe UI`（雅黑也不覆盖的符号 / emoji 走系统字体链接） |
+| 生效范围 | 仅 Windows（`defaultTargetPlatform == windows`）；Android/macOS 保持 Flutter 默认字体 |
+| 包体 | **0 增加**（`assets/fonts` 与 `pubspec` 的 `fonts:` 段已删除） |
 
 **改动位置**
 
 | 位置 | 改了什么 |
 |---|---|
-| `pubspec.yaml` | `flutter.fonts` 声明 `NotoSansSC` 三个字重（原来只有 `assets:`，没有 `fonts:`，所以之前能改的只有系统字体名） |
-| `lib/app/theme.dart` | 新增 `kNimboWinFontFamily` / `kNimboWinFontFallback` / `nimboFontFamily()` / `nimboFontFallback()`；`buildNimboTheme()` 把 `fontFamily`、`fontFamilyFallback` 传给 `ThemeData` |
-| `lib/app/theme.dart` 组件主题 | `appBarTheme.titleTextStyle` 与 `tooltipTheme.textStyle` 是**显式**样式，不继承 `textTheme`，用 `withFont()` 手动补上字族——否则标题与提示会继续用默认字体 |
-| 各页面的 `TextStyle(fontSize: …)` | **不用改**：`inherit` 默认 true，`Text` 会把它们合并到主题给出的 `DefaultTextStyle`，字族自动跟随 |
+| `lib/app/theme.dart` | `kNimboWinFontFamily = 'Arial'`；`kNimboWinFontFallback = [雅黑 UI, 雅黑, Segoe UI]`；`buildNimboTheme()` 把它传给 `ThemeData.fontFamily / fontFamilyFallback` |
+| `lib/app/theme.dart` 组件主题 | `appBarTheme.titleTextStyle` 与 `tooltipTheme.textStyle` 是**显式**样式、不继承 `textTheme`，由 `withFont()` 补字族 |
+| `pubspec.yaml` | 删除 `flutter.fonts`（`NotoSansSC` 三个字重）——改用系统字体后没有本地字体需要声明 |
+| `assets/fonts/` | 整个目录删除（3 个 OTF + OFL.txt，约 24 MB） |
+| 各页面的 `TextStyle(fontSize: …)` | **不用改**：`inherit` 默认 true，会合并到主题给出的 `DefaultTextStyle` |
 
-**为什么只声明三个字重**：项目里用到 w400 / w500 / w600 / w700 / w800。全量 5 个字重约 40 MB，
-塞进包里不划算；缺的字重由 Flutter 按最接近的匹配（w600 → 500 或 700，w800 → 700）。
-代价是 w600 与 w700 视觉上会趋同，层次主要靠字号而不是字重区分。
-
-**体积代价**：EXE 与 APK 各增加约 24 MB（Flutter 无法按平台声明 assets，Android 也会打进去）。
-要省可以只留 400/700（16 MB，但 w600 会全变粗），或换更窄的字族。
+**注意中英混排**：一段文字里英文/数字用 Arial、中文用雅黑，是 Windows 原生应用的常见组合
+（雅黑自带拉丁字形，会有个别字符落到雅黑）。这是「用 Arial」的固有结果，不是 bug。
 
 **验证方式**
-1. Windows 启动，看「独立代理」「添加挂载」等中文——应为思源黑体的收笔（横竖末端平切、
-   结构更方），与雅黑（末端略圆、字形更窄）肉眼可分辨；
-2. 文件页 → 详情栏看任意中文文件名，确认无豆腐块；
-3. 生僻字 / emoji：文件名改成 `𠮷🙂测试.txt`，能正常显示说明回落链生效；
-4. 布局：对比改前截图，行高与换行不应变化（字体 metric 不同，极窄屏可能出现新的换行）。
+1. Windows 启动后看「Nimbo」「FTP」「S3」等拉丁文字——应为 Arial 的细笔画（`i`、`l` 竖线等宽，
+   `a` 双层结构）；对照改前截图，整体明显变细；
+2. 中文（「独立代理」「添加挂载」）应仍是雅黑，且**不能出现豆腐块**；
+3. 文件名 `𠮷🙂测试.txt` 能正常显示（回落链生效）；
+4. 布局：行高/换行与改前一致，表格列宽不被撑开。
 
 ---
 
@@ -427,7 +425,6 @@ lib/
 test/core_logic_test.dart    纯逻辑单测（路径 / 令牌桶 / 分片状态 / 错误文案 / 进度）
 assets/
   tray.ico / tray.png          Windows 托盘图标（256px 圆角 N，脚本生成，无需设计源文件）
-  fonts/NotoSansSC-*.otf       Windows 界面字体（思源黑体 400/500/700），OFL.txt 为许可证
 design/index.html              设计稿
 docs/s3-addressing-analysis.md S3 寻址模式与第三方兼容性分析（含 Endpoint 子路径）
 docs/tech-stack-audit.md      客户端技术栈审查（是否完全使用 Flutter + 风险点）
@@ -576,11 +573,13 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
 建目录 + 写一个空探针文件，失败就回落到默认目录。这样下载永远能进行，
 只是位置可能不是用户以为的那个——比失败可接受。
 
-**ADR-25 界面字体随包内置，不用系统字体名**
-「把默认字体换成思源黑体」有两条路：写系统字体名（零体积，但 Windows 不预装该字族，
-未安装时静默回落，用户看到的还是雅黑）与内置字体文件（+24 MB，任何机器一致）。
-选内置：这种「看起来没变」的失败最难排查，也不该让用户为了用客户端去装字体。
-代价是包体变大、OFL 许可证必须随包分发；只对 Windows 生效，避免动到 Android 的字号体系。
+**ADR-25 Windows 界面字体用系统 Arial，不打包字体**
+先试过内置思源黑体（Noto Sans SC 400/500/700，+24 MB）：能保证字形一致，但代价是包体
+膨胀，且只带三个字重时界面里密集的 w600/w700 都被映射到 500/700，观感偏粗。
+改为系统 Arial：零体积、Windows 全版本自带、拉丁笔画更细；代价是**中文不受控**
+（Arial 无 CJK，只能靠 `fontFamilyFallback` 落到雅黑），中英混排时两种字族的
+字面大小需要靠视觉确认，不能指望「整段都是 Arial」。
+结论：宁可接受中英分别用 Arial / 雅黑，也不要把 24 MB 字体塞进安装包。
 
 ---
 
@@ -712,13 +711,13 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
     才保留历史值；新增设置项如果要改默认值，请照这个模式加 pinned 标记。
 48. **下载目录只对新任务生效。** `localPath` 在入队时算好并落盘，改设置不会迁移
     已在队列里的任务；想让新目录生效，下载新文件即可。
-49. **字体名 ≠ 字体可用。** `fontFamily: 'Source Han Sans SC'` 这种写法在没装该字体的
-    Windows 上不报错也不警告，只静默回落。本项目用内置 family `NotoSansSC`；
-    新增文本样式时**不要**手写别的 family，否则那一处会跳回默认字体。
+49. **字体名 ≠ 字体可用，但 Arial 是例外。** `fontFamily: 'Source Han Sans SC'` 在没装该字体的
+    Windows 上不报错也不警告，只静默回落；Arial 则各版本 Windows 都自带（`arial.ttf`），
+    可以放心写死。换字体时**必须**确认是系统核心字体，否则要先验证再上。
 50. **组件主题的 `textStyle / titleTextStyle` 不继承 `textTheme`。** 换字体必须一起改，
     否则「大部分地方变了、AppBar 标题和 Tooltip 没变」，这种半生效最难发现。
-51. **`assets/fonts` 会同时进 Windows 包与 APK**（Flutter 没有按平台声明 assets 的能力），
-    共约 24 MB。要压包体先动这里，别动 `tray.ico`（托盘图标必须随包）。
+51. **Arial 没有中文字形。** 中文靠 `fontFamilyFallback` 的雅黑，链里雅黑必须排在
+    `Segoe UI` 前面；删掉回落链会让中文落到系统字体链接，出现同界面多字族混排。
 52. **WebDAV 中断不再删临时文件。** 以前失败就 `DELETE *.nimbo-part`，现在保留它作为
     续传载体；代价是远端会留一个 `*.nimbo-part`，下次同名上传会续传/覆盖。
     取消任务不会主动清理远端临时文件（与 S3 分片的处理一致）。
@@ -780,7 +779,7 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
 | **FTP 匿名** | 添加 FTP 时勾选「匿名登录」 | 用户名/密码置灰；能列出匿名目录 |
 | **返回键** | 依次按返回：子目录 → 挂载根 → 全部挂载 → 提示 → 再按 | 前三次逐级回退，最后一次连按两次才退出 |
 | **传输记录** | 传一半 → 杀进程 → 重开 | 任务列表还在，状态是「已暂停」，点继续能从断点接着传 |
-| **托盘左键** | 左键单击托盘图标 | 窗口显示/还原并聚焦（若已在前台则无变化，不闪） |
+| **托盘左键单击** | 左键单击托盘图标 | **无任何响应**（窗口不动、不聚焦、不闪烁）；连续单击多次也一样 |
 | **托盘右键** | 右键托盘图标 | 立刻弹出菜单（含「显示主窗口」「退出」）；点击菜单外区域能正常关闭；菜单不会只闪一下就消失 |
 | **托盘菜单项** | 右键托盘图标 | 菜单只有「显示主窗口」「退出」两项（中间分隔线）；点「显示主窗口」窗口出现并聚焦；点「退出」进程消失、托盘图标消失 |
 | **托盘双击** | 左键双击 | 只执行一次显示+聚焦（300ms 去重生效，不闪两次） |
@@ -800,9 +799,11 @@ WebDAV 驱动仍把 `mount.port` 当作「地址里没写端口」时的兜底�
 | **非法地址校验** | 地址填 `ftp://host` 或 `https://`，点「测试连接」与「保存」 | 两处给出同一条可读错误（只支持 http/https / 缺主机名），不会保存 |
 | **FTP/SFTP 端口框** | 添加 FTP，端口填 `abc` / `99999` | 提示「1–65535」；改成空则用 21/22，正常保存 |
 | **编辑老配置不丢端口** | 用旧版本保存过一个 `host=example.com / port=8443` 的 WebDAV 挂载，再打开编辑 | 地址自动变成 `https://example.com:8443`，保存后仍能连 |
-| **界面字体** | Windows 启动后看「独立代理」「添加挂载」 | 字形是思源黑体（横竖末端平切、结构更方），不是雅黑；标题/正文/说明层次仍在 |
+| **界面字体（拉丁）** | Windows 启动后看「Nimbo」「FTP」「S3」「KB/s」 | 拉丁字母是 Arial 的细笔画，与改前相比明显变细 |
+| **界面字体（中文）** | 看「独立代理」「添加挂载」 | 中文仍是雅黑，无豆腐块；不要期待中文变 Arial（Arial 无 CJK） |
 | **字体回落** | 文件名改成 `𠮷🙂测试.txt` 再浏览 | 不出现豆腐块（走 `Microsoft YaHei UI` / `Segoe UI` 回落） |
 | **字体不改变布局** | 对比换字体前后的文件列表与详情栏 | 行高与换行位置基本一致，表格列宽没被撑开 |
+| **托盘双击 = 菜单「显示主窗口」** | 先收进托盘：分别用双击和右键菜单项唤回 | 两者表现完全一致（显示 → 还原 → 聚焦），没有「一个能用一个不能」 |
 | **只读开关已移除** | 打开添加/编辑挂载弹窗 | 表单里没有「只读挂载」；文件页的上传/新建/删除/重命名/拖拽全部可用，不再有只读门禁 |
 | **弹窗底部提示已移除** | 同上，看弹窗底部 | 只剩「测试连接 / 保存」按钮，没有「凭据只写入系统安全存储…」那段文字 |
 | **下载目录** | 设置 → 下载目录 → 选择 `D://Media` → 下载一个文件 | 文件落在 `D://Media`；重启后设置仍在；把该目录删掉再下载 → 自动回落到 `下载/Nimbo`，不报错 |

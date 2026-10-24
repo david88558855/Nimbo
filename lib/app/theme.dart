@@ -87,13 +87,20 @@ class NimboRadius {
 // 移动端字号与尺寸
 // ---------------------------------------------------------------------------
 
-/// Windows 端界面字族：思源黑体 / Noto Sans SC，随包内置（`assets/fonts/`）。
+/// Windows 端界面字族：Arial。
 ///
-/// **Windows 不预装这个字族**（Win10/11 只有微软雅黑、等线、宋体）。只写字体名
-/// 而不打包字体，在用户机器上会静默回落到雅黑 —— 看起来就像「没换」。
-const String kNimboWinFontFamily = 'NotoSansSC';
+/// Arial 是 Windows 各版本（Win7 起）都随系统安装的核心字体，拉丁字形笔画均匀、
+/// 常规字重明显比思源黑体 500/700 细，解决「界面整体发粗」的问题；不需要打包，
+/// 因此上一版内置的 Noto Sans SC（24 MB）已移除。
+///
+/// **Arial 没有中文字形**：中文全靠下面的回落链（雅黑），这是预期行为 ——
+/// 中英文分别走 Arial / YaHei 也是 Windows 原生应用的常见组合。
+const String kNimboWinFontFamily = 'Arial';
 
-/// 内置字体缺字时的系统回落链（生僻字、emoji、特殊符号）。
+/// Arial 缺字时的回落链：中文（雅黑）→ 极少数符号（Segoe UI）。
+///
+/// 顺序有意义：雅黑必须排在 Segoe UI 前面，否则中文会落到不覆盖 CJK 的字体上，
+/// 再由系统字体链接兜底，容易出现同一界面里中文来自不同字族。
 const List<String> kNimboWinFontFallback = <String>[
   'Microsoft YaHei UI',
   'Microsoft YaHei',

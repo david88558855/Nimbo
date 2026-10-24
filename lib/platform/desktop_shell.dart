@@ -15,7 +15,8 @@ import '../core/store.dart';
 /// Windows 桌面外壳：托盘图标、右键菜单、主窗口显隐、关窗行为。
 ///
 /// 交互约定：
-/// - 左键单击 / 双击：显示并聚焦主窗口（连点由 [showWindow] 内部去重）
+/// - 左键单击：无任何响应（托盘图标常被误触，单击就弹窗很打扰）
+/// - 左键双击：显示并聚焦主窗口 —— 与右键菜单「显示主窗口」走**同一个** [showWindow]
 /// - 右键：弹出菜单「显示主窗口 / 退出」
 /// - 点窗口 ×：收进托盘（默认）；托盘不可用、或用户关掉该设置时直接退出
 ///
@@ -77,6 +78,8 @@ class DesktopShell with TrayListener, WindowListener {
       }
       // 右键菜单是「退出」的唯一入口，装不上就等于托盘不可用。
       await trayManager.setContextMenu(Menu(items: [
+        // 与左键双击共用 [showWindow]：两条入口一套逻辑，不会有「双击能显示、
+        // 菜单有时不显示」这种分叉。
         MenuItem(key: 'show', label: '显示主窗口', onClick: (_) => showWindow()),
         MenuItem.separator(),
         MenuItem(key: 'exit', label: '退出', onClick: (_) => exitApp()),
@@ -84,8 +87,8 @@ class DesktopShell with TrayListener, WindowListener {
       // 光挂菜单不够：原生默认不显示。见类注释第 1 条。
       _menuByNativeTrigger = await _enableRightClickMenu();
       try {
-        // 0.5.x 兼容层会忽略 DoubleClicked 事件（`_wireTrayEvents` 里直接 break），
-        // 这里直接挂到底层图标上兜底；挂不上也不影响菜单。
+        // 双击的**唯一**入口：0.5.x 兼容层会丢弃 DoubleClicked（`_wireTrayEvents`
+        // 里直接 break），只能挂到底层图标上。单击不再参与任何判定。
         trayManager.trayIcon?.addListener((event) {
           if (event is TrayIconDoubleClickedEvent) showWindow();
         });
@@ -162,10 +165,13 @@ class DesktopShell with TrayListener, WindowListener {
     } catch (_) {}
   }
 
+  /// 显示并聚焦主窗口：**托盘双击**、**右键菜单「显示主窗口」**、**第二实例唤醒**
+  /// 三条入口共用这一套逻辑（show → restore → focus），行为完全一致。
+  ///
+  /// 300ms 去重是给「双击触发两次 / 菜单被连点」兜底的：窗口已经在动的时候
+  /// 再跑一遍 show/restore/focus 会闪。
   Future<void> showWindow() async {
     if (!Platform.isWindows) return;
-    // 单击与双击、以及底层 DoubleClicked 事件可能连着触发，300ms 内的重复请求
-    // 直接吞掉，避免 show/restore/focus 连做几遍导致窗口闪烁。
     final now = DateTime.now();
     final last = _lastShowAt;
     if (last != null && now.difference(last) < const Duration(milliseconds: 300)) return;
@@ -222,9 +228,12 @@ class DesktopShell with TrayListener, WindowListener {
 
   @override
   void onTrayIconMouseDown() {
-    // 左键单击与双击都「显示并聚焦主窗口」：原来单击是全空操作，用户会以为托盘坏了。
-    // 系统在双击时会连发两次 down，[showWindow] 的 300ms 去重负责吞掉第二次。
-    unawaited(showWindow());
+    // 左键单击：**明确无响应**。
+    //
+    // 这里必须留空而不是删掉方法：`TrayListener` 的默认实现是空方法，但显式重写
+    // 能把「单击不做任何事」钉成契约，避免以后有人又往这里加 show/hide。
+    // 双击不靠这个回调的时间差判定（那条路已被移除）——它走底层
+    // `TrayIconDoubleClickedEvent`，见 `init()` 里的图标监听。
   }
 
   @override

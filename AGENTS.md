@@ -81,7 +81,8 @@ gh run view --job $JOB --log-failed | sed -e 's/\x1b\[[0-9;]*m//g' | grep -E "er
   手动 `popUpContextMenu()` 只在原生触发器没生效时执行，两条路同时开会弹两次。
 - **托盘双击**不能只靠兼容层的 `onTrayIconMouseDown` 时间差——`tray_manager 0.8` 的
   legacy 桥接会丢弃 `DoubleClicked`，必须同时监听底层 `TrayIconDoubleClickedEvent`。
-  左键单击也会显示窗口，重复调用由 `showWindow()` 的 300ms 去重吞掉。
+  **左键单击必须无响应**（`onTrayIconMouseDown` 保持空实现），双击与右键菜单项都走
+  `showWindow()` 这一个入口，行为才不会分叉。
 - 关窗行为由 `setPreventClose(true)` + `WindowListener.onWindowClose` 接管：
   默认收进托盘；托盘没装好（`_trayReady == false`）时必须改为直接退出，否则会变成
   「窗口藏了、托盘也没有」的僵尸进程。
@@ -90,10 +91,10 @@ gh run view --job $JOB --log-failed | sed -e 's/\x1b\[[0-9;]*m//g' | grep -E "er
 - `exit(0)` 不走 `dispose()`：所有彻底退出的路径都要先 `onBeforeExit()` 落盘。
 - 菜单点击回调跑在原生 `TrackPopupMenu` 栈里，退出前要 `await 60ms` 再
   `trayManager.destroy()`，否则会释放 `Menu::Open()` 正在用的对象。
-- **界面字体**：Windows 用内置 Noto Sans SC（`pubspec.yaml` 的 `fonts:` + `assets/fonts/`），
-  字族名是 `NotoSansSC`。换字体改 `theme.dart` 的 `kNimboWinFontFamily`，
-  且**必须同时改 `appBarTheme.titleTextStyle` 与 `tooltipTheme.textStyle`**（显式样式不继承
-  `textTheme`）。别写系统字体名：Windows 没预装思源黑体，会静默回落成雅黑。
+- **界面字体**：Windows 用系统 `Arial`（`theme.dart` 的 `kNimboWinFontFamily`），不打包字体。
+  Arial 无 CJK，中文靠 `kNimboWinFontFallback`（雅黑 → Segoe UI）。
+  换字体时**必须同时改 `appBarTheme.titleTextStyle` 与 `tooltipTheme.textStyle`**
+  （显式样式不继承 `textTheme`）；写非系统核心字体名前先确认它真的存在，否则静默回落。
 - Windows 产物依赖 `cnativeapi.dll` / `window_manager_plugin.dll` 等，**必须整包分发**。
 - 便携数据全在 exe 同级 `userdata/`：`prefs.json`、`transfers.json`、`multipart.json`、
   `credentials.dat`。
