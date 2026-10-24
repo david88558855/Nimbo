@@ -116,6 +116,7 @@ class AppState extends ChangeNotifier {
     loading = true;
     error = null;
     entries = const [];
+    space = null;
     selected = null;
     _clearPicked();
     path = '/';

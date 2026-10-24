@@ -175,7 +175,7 @@ downloadTo / uploadFile / mkdir / removeEntry / move / probe`，错误统一抛 
 
 **注意**：`file_picker` 锁 8.x 期间不能升 `desktop_drop` 到 0.9.x，否则 pub 求解失败。
 
-### 2.8 P3 打磨（进行中）
+### 2.8 P3 打磨（已完成）
 
 | 能力 | 实现要点 |
 |---|---|

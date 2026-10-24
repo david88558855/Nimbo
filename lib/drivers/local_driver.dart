@@ -13,8 +13,9 @@ class LocalDriver extends StorageDriver {
   @override
   String get scheme => 'file';
 
+  // space 恒为 false：dart:io 没有取剩余空间的 API，需 FFI 调平台接口（见待办）。
   @override
-  Capability get caps => const Capability(space: true, checksum: false, proxy: false);
+  Capability get caps => const Capability(space: false, checksum: false, proxy: false);
 
   @override
   ResumeSupport get resume => ResumeSupport.both;
